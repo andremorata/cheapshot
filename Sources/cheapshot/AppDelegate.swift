@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item.button?.image = Self.menuBarIcon
         item.menu = makeMenu()
         statusItem = item
+        NSApp.mainMenu = makeMainMenu()
 
         // NOTE: shortcuts are fixed until there is a preferences screen. They mirror the system
         // screenshot keys with Option in place of Command.
@@ -19,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         HotKey.register(keyCode: kVK_ANSI_3, modifiers: modifiers) { [weak self] in self?.captureScreen() }
         HotKey.register(keyCode: kVK_ANSI_4, modifiers: modifiers) { [weak self] in self?.captureRegion() }
         HotKey.register(keyCode: kVK_ANSI_5, modifiers: modifiers) { [weak self] in self?.captureWindow() }
+        HotKey.register(keyCode: kVK_ANSI_E, modifiers: modifiers) { [weak self] in self?.annotateLastCapture() }
     }
 
     /// The bundled glyph. `swift run` has no bundle resources, so it falls back to a system symbol.
@@ -43,14 +45,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         add("Capture Window", #selector(captureWindow), key: "5")
         add("Capture Screen", #selector(captureScreen), key: "3")
         menu.addItem(.separator())
+        add("Annotate Last Capture", #selector(annotateLastCapture), key: "e")
         add("Save Last Capture…", #selector(saveLastCapture), key: "s", mask: [.command])
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit cheapshot", action: #selector(NSApplication.terminate), keyEquivalent: "q")
         return menu
     }
 
+    /// Invisible while the app is menu-bar-only. It gives the editor window its key equivalents.
+    private func makeMainMenu() -> NSMenu {
+        let main = NSMenu()
+        func submenu(_ title: String, _ items: [(String, Selector, String)]) {
+            let menu = NSMenu(title: title)
+            for (itemTitle, action, key) in items { menu.addItem(withTitle: itemTitle, action: action, keyEquivalent: key) }
+            main.addItem(withTitle: title, action: nil, keyEquivalent: "").submenu = menu
+        }
+        submenu("cheapshot", [("Quit cheapshot", #selector(NSApplication.terminate), "q")])
+        submenu("File", [
+            ("Save…", #selector(CanvasView.saveDocument), "s"),
+            ("Close", #selector(NSWindow.performClose), "w"),
+        ])
+        submenu("Edit", [("Copy", #selector(CanvasView.copy(_:)), "c")])
+        return main
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action != #selector(saveLastCapture) || lastShot != nil
+        let needsShot = [#selector(saveLastCapture), #selector(annotateLastCapture)]
+        return !needsShot.contains { $0 == menuItem.action } || lastShot != nil
     }
 
     @objc private func captureRegion() { pickAndCapture(.region) }
@@ -58,9 +79,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func captureScreen() {
         guard hasScreenAccess() else { return }
-        let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-        guard let displayID = screen?.displayID else { return }
+        guard let displayID = NSScreen.underMouse?.displayID else { return }
         Task { await deliver { try await Capture.display(displayID) } }
+    }
+
+    @objc private func annotateLastCapture() {
+        guard let lastShot else { return }
+        Editor.open(lastShot)
     }
 
     @objc private func saveLastCapture() {
@@ -85,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             lastShot = shot
             Output.copy(shot)
             Self.shutter?.play()
+            Thumbnail.show(shot) { Editor.open(shot) }
         } catch {
             report(error)
         }

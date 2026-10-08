@@ -16,3 +16,14 @@ import Testing
     #expect(displayLocal(CGRect(x: 2000, y: -500, width: 100, height: 50), displayFrame: display)
         == CGRect(x: 80, y: 100, width: 100, height: 50))
 }
+
+@Test func fitsAndCentersWithoutUpscalingPastTheCap() {
+    let box = CGRect(x: 0, y: 0, width: 200, height: 100)
+    // Wide image: limited by width, centered vertically.
+    #expect(aspectFit(CGSize(width: 400, height: 100), in: box) == CGRect(x: 0, y: 25, width: 200, height: 50))
+    // Small image with a cap of 1 keeps its size and sits in the middle.
+    #expect(aspectFit(CGSize(width: 20, height: 10), in: box, maxScale: 1) == CGRect(x: 90, y: 45, width: 20, height: 10))
+    // A view smaller than its margins insets to the null rect. That must not turn into NaN.
+    let collapsed = CGRect(x: 0, y: 0, width: 10, height: 10).insetBy(dx: 16, dy: 16)
+    #expect(aspectFit(CGSize(width: 20, height: 10), in: collapsed) == .zero)
+}

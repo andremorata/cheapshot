@@ -23,6 +23,10 @@ extension NSScreen {
     var displayID: CGDirectDisplayID? {
         deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
+
+    static var underMouse: NSScreen? {
+        screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? main
+    }
 }
 
 @MainActor

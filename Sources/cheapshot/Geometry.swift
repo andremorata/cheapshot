@@ -10,3 +10,12 @@ func flipY(_ rect: CGRect, primaryHeight: CGFloat) -> CGRect {
 func displayLocal(_ rect: CGRect, displayFrame: CGRect) -> CGRect {
     rect.offsetBy(dx: -displayFrame.minX, dy: -displayFrame.minY)
 }
+
+/// Scales `size` to fit inside `rect`, centered, keeping its proportions. `maxScale` caps the growth.
+func aspectFit(_ size: CGSize, in rect: CGRect, maxScale: CGFloat = .infinity) -> CGRect {
+    // `insetBy` returns the null rect when a view is smaller than its margins.
+    guard size.width > 0, size.height > 0, !rect.isEmpty else { return .zero }
+    let scale = min(rect.width / size.width, rect.height / size.height, maxScale)
+    let fitted = CGSize(width: size.width * scale, height: size.height * scale)
+    return CGRect(x: rect.midX - fitted.width / 2, y: rect.midY - fitted.height / 2, width: fitted.width, height: fitted.height)
+}
