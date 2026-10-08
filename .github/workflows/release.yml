@@ -33,7 +33,7 @@ jobs:
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags are needed to find the last version.
           fetch-depth: 0
@@ -101,7 +101,7 @@ jobs:
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
           echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: cheapshot-${{ steps.version.outputs.version }}
           path: ${{ steps.package.outputs.zip }}
