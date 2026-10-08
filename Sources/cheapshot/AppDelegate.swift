@@ -6,21 +6,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem?
     private var lastShot: Shot?
     private var askedForScreenAccess = false
+    private var hotKeyTokens: [UInt32] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.menuBarIcon
-        item.menu = makeMenu()
         statusItem = item
         NSApp.mainMenu = makeMainMenu()
 
-        // NOTE: shortcuts are fixed until there is a preferences screen. They mirror the system
-        // screenshot keys with Option in place of Command.
-        let modifiers = optionKey | shiftKey
-        HotKey.register(keyCode: kVK_ANSI_3, modifiers: modifiers) { [weak self] in self?.captureScreen() }
-        HotKey.register(keyCode: kVK_ANSI_4, modifiers: modifiers) { [weak self] in self?.captureRegion() }
-        HotKey.register(keyCode: kVK_ANSI_5, modifiers: modifiers) { [weak self] in self?.captureWindow() }
-        HotKey.register(keyCode: kVK_ANSI_E, modifiers: modifiers) { [weak self] in self?.annotateLastCapture() }
+        setHotKeysEnabled(true)
+    }
+
+    /// Registers every hotkey from the saved shortcuts, or drops them all. The menu is rebuilt
+    /// either way, so its shortcut hints follow the settings.
+    private func setHotKeysEnabled(_ enabled: Bool) {
+        hotKeyTokens.forEach(HotKey.unregister)
+        hotKeyTokens = []
+        if enabled {
+            for action in HotKeyAction.allCases {
+                let shortcut = Shortcut.current(for: action)
+                let token = HotKey.register(keyCode: shortcut.keyCode, modifiers: shortcut.modifiers) { [weak self] in
+                    self?.perform(action)
+                }
+                if let token { hotKeyTokens.append(token) }
+            }
+        }
+        statusItem?.menu = makeMenu()
+    }
+
+    private func perform(_ action: HotKeyAction) {
+        switch action {
+        case .region: pickAndCapture(.region)
+        case .window: pickAndCapture(.window)
+        case .screen: captureScreen()
+        case .annotate: annotateLastCapture()
+        }
     }
 
     /// The bundled glyph. `swift run` has no bundle resources, so it falls back to a system symbol.
@@ -36,17 +56,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
-        func add(_ title: String, _ action: Selector, key: String = "", mask: NSEvent.ModifierFlags = [.option, .shift]) {
-            let item = menu.addItem(withTitle: title, action: action, keyEquivalent: key)
-            item.keyEquivalentModifierMask = mask
+        func add(_ action: HotKeyAction) {
+            let shortcut = Shortcut.current(for: action)
+            let item = menu.addItem(withTitle: action.title, action: #selector(hotKeyItemPicked), keyEquivalent: shortcut.menuKeyEquivalent)
+            item.keyEquivalentModifierMask = shortcut.cocoaModifiers
+            item.representedObject = action.rawValue
             item.target = self
         }
-        add("Capture Region", #selector(captureRegion), key: "4")
-        add("Capture Window", #selector(captureWindow), key: "5")
-        add("Capture Screen", #selector(captureScreen), key: "3")
+        add(.region)
+        add(.window)
+        add(.screen)
         menu.addItem(.separator())
-        add("Annotate Last Capture", #selector(annotateLastCapture), key: "e")
-        add("Save Last Capture…", #selector(saveLastCapture), key: "s", mask: [.command])
+        add(.annotate)
+        menu.addItem(withTitle: "Save Last Capture…", action: #selector(saveLastCapture), keyEquivalent: "s").target = self
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit cheapshot", action: #selector(NSApplication.terminate), keyEquivalent: "q")
         return menu
@@ -60,7 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             for (itemTitle, action, key) in items { menu.addItem(withTitle: itemTitle, action: action, keyEquivalent: key) }
             main.addItem(withTitle: title, action: nil, keyEquivalent: "").submenu = menu
         }
-        submenu("cheapshot", [("Quit cheapshot", #selector(NSApplication.terminate), "q")])
+        submenu("cheapshot", [
+            ("Settings…", #selector(showSettings), ","),
+            ("Quit cheapshot", #selector(NSApplication.terminate), "q"),
+        ])
         submenu("File", [
             ("Save…", #selector(CanvasView.saveDocument), "s"),
             ("Close", #selector(NSWindow.performClose), "w"),
@@ -75,20 +102,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        let needsShot = [#selector(saveLastCapture), #selector(annotateLastCapture)]
-        return !needsShot.contains { $0 == menuItem.action } || lastShot != nil
+        let annotates = menuItem.representedObject as? String == HotKeyAction.annotate.rawValue
+        let needsShot = annotates || menuItem.action == #selector(saveLastCapture)
+        return !needsShot || lastShot != nil
     }
 
-    @objc private func captureRegion() { pickAndCapture(.region) }
-    @objc private func captureWindow() { pickAndCapture(.window) }
+    @objc private func hotKeyItemPicked(_ sender: NSMenuItem) {
+        guard let action = (sender.representedObject as? String).flatMap(HotKeyAction.init) else { return }
+        perform(action)
+    }
 
-    @objc private func captureScreen() {
+    @objc private func showSettings() {
+        SettingsWindow.show { [weak self] in self?.setHotKeysEnabled($0) }
+    }
+
+    private func captureScreen() {
         guard hasScreenAccess() else { return }
         guard let displayID = NSScreen.underMouse?.displayID else { return }
         Task { await deliver { try await Capture.display(displayID) } }
     }
 
-    @objc private func annotateLastCapture() {
+    private func annotateLastCapture() {
         guard let lastShot else { return }
         Editor.open(lastShot)
     }

@@ -41,3 +41,20 @@ import Testing
     #expect(shape(.ellipse).hitTest(CGPoint(x: 0, y: 30), tolerance: 4))
     #expect(!shape(.ellipse).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
 }
+
+@Test func readsLabelsAndStoresShortcuts() throws {
+    // Modifiers print in the macOS order, whatever order they were pressed in.
+    let shortcut = try #require(Shortcut(keyCode: 21, flags: [.shift, .command, .option], character: "4"))
+    #expect(shortcut.label == "⌥⇧⌘4")
+    #expect(shortcut.cocoaModifiers == [.option, .shift, .command])
+    // Shift alone would hijack normal typing, so it is refused.
+    #expect(Shortcut(keyCode: 21, flags: [.shift], character: "4") == nil)
+    // A named key shows its name and gives the menu no key equivalent.
+    let space = try #require(Shortcut(keyCode: 49, flags: [.control], character: " "))
+    #expect(space.label == "⌃Space")
+    #expect(space.menuKeyEquivalent == "")
+    // What goes into UserDefaults comes back the same.
+    let restored = try #require(Shortcut(plist: shortcut.plist))
+    #expect(restored.matches(shortcut) && restored.key == "4")
+    #expect(Shortcut(plist: ["keyCode": "21"]) == nil)
+}
