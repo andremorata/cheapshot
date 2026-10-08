@@ -58,3 +58,9 @@ import Testing
     #expect(restored.matches(shortcut) && restored.key == "4")
     #expect(Shortcut(plist: ["keyCode": "21"]) == nil)
 }
+
+@Test func cropFlipsToTopLeftPixels() {
+    // 300x200 pt image at 2x. A 100x50 pt crop whose top edge is 30 pt below the image top.
+    let crop = CGRect(x: 10, y: 120, width: 100, height: 50)
+    #expect(pixelRect(forCrop: crop, imageHeight: 200, scale: 2) == CGRect(x: 20, y: 60, width: 200, height: 100))
+}

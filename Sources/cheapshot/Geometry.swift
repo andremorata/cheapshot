@@ -19,3 +19,10 @@ func aspectFit(_ size: CGSize, in rect: CGRect, maxScale: CGFloat = .infinity) -
     let fitted = CGSize(width: size.width * scale, height: size.height * scale)
     return CGRect(x: rect.midX - fitted.width / 2, y: rect.midY - fitted.height / 2, width: fitted.width, height: fitted.height)
 }
+
+/// Turns a crop in image points (bottom-left origin) into the pixel rect `CGImage.cropping`
+/// expects (top-left origin). `imageHeight` is the full image height in points.
+func pixelRect(forCrop crop: CGRect, imageHeight: CGFloat, scale: CGFloat) -> CGRect {
+    CGRect(x: crop.minX * scale, y: (imageHeight - crop.maxY) * scale, width: crop.width * scale, height: crop.height * scale)
+        .integral
+}

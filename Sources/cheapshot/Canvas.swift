@@ -1,11 +1,18 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// Draws the capture with its annotations, and turns mouse and key input into annotations.
+/// Everything the editor can change about a capture. One value of this is one undo step.
+struct Document: Equatable, Sendable {
+    var annotations: [Annotation] = []
+    /// The part of the capture to keep, in image points. `nil` keeps all of it.
+    var crop: CGRect?
+}
+
+/// Draws the capture with its annotations, and turns mouse and key input into edits.
 final class CanvasView: NSView {
     static let margin: CGFloat = 16
 
-    var tool: Annotation.Kind = .arrow
+    var tool: Tool = .arrow
     var color: RGBA = .defaultInk {
         didSet { restyleSelection("Change Color") { $0.color = color } }
     }
@@ -13,12 +20,12 @@ final class CanvasView: NSView {
         didSet { restyleSelection("Change Thickness") { $0.lineWidth = lineWidth } }
     }
     /// Called when a tool's letter key is pressed, so the toolbar can follow.
-    var onToolShortcut: ((Annotation.Kind) -> Void)?
+    var onToolShortcut: ((Tool) -> Void)?
 
     private let shot: Shot
-    private var annotations: [Annotation] = [] {
+    private var document = Document() {
         didSet {
-            if let selected, selected >= annotations.count { self.selected = nil }
+            if let selected, selected >= document.annotations.count { self.selected = nil }
             needsDisplay = true
         }
     }
@@ -28,9 +35,10 @@ final class CanvasView: NSView {
         case drawing
         case moving(Int, from: CGPoint)
         case resizing(Int, start: Bool)
+        case cropping(from: CGPoint)
     }
     private var drag: Drag?
-    private var beforeDrag: [Annotation] = []
+    private var beforeDrag = Document()
 
     init(shot: Shot) {
         self.shot = shot
@@ -78,9 +86,21 @@ final class CanvasView: NSView {
         context.clip(to: rect)
         context.translateBy(x: rect.minX, y: rect.minY)
         context.scaleBy(x: zoom, y: zoom)
-        for annotation in annotations { annotation.draw(in: context) }
-        if let selected { drawHandles(for: annotations[selected], in: context) }
+        for annotation in document.annotations { annotation.draw(in: context) }
+        if let crop = document.crop { drawCrop(crop, in: context) }
+        if let selected { drawHandles(for: document.annotations[selected], in: context) }
         context.restoreGState()
+    }
+
+    /// Dims what the crop throws away. The capture itself is untouched until export.
+    private func drawCrop(_ crop: CGRect, in context: CGContext) {
+        context.addRect(CGRect(origin: .zero, size: natural))
+        context.addRect(crop)
+        context.setFillColor(CGColor(gray: 0, alpha: 0.55))
+        context.fillPath(using: .evenOdd)
+        context.setStrokeColor(.white)
+        context.setLineWidth(1 / zoom)
+        context.stroke(crop)
     }
 
     private var handleRadius: CGFloat { 5 / zoom }
@@ -96,9 +116,9 @@ final class CanvasView: NSView {
         }
     }
 
-    /// The capture with the annotations burned in, at full pixel size.
+    /// The capture with the annotations burned in and the crop applied, at full pixel size.
     func rendered() -> Shot {
-        guard !annotations.isEmpty else { return shot }
+        guard document != Document() else { return shot }
         let width = shot.image.width
         let height = shot.image.height
         let spaces = [shot.image.colorSpace, CGColorSpace(name: CGColorSpace.sRGB)].compactMap { $0 }
@@ -110,19 +130,23 @@ final class CanvasView: NSView {
         guard let context else { return shot }
         context.draw(shot.image, in: CGRect(x: 0, y: 0, width: width, height: height))
         context.scaleBy(x: shot.scale, y: shot.scale)
-        for annotation in annotations { annotation.draw(in: context) }
-        return context.makeImage().map { Shot(image: $0, scale: shot.scale) } ?? shot
+        for annotation in document.annotations { annotation.draw(in: context) }
+        guard var image = context.makeImage() else { return shot }
+        if let crop = document.crop {
+            image = image.cropping(to: pixelRect(forCrop: crop, imageHeight: natural.height, scale: shot.scale)) ?? image
+        }
+        return Shot(image: image, scale: shot.scale)
     }
 
     // MARK: Undo
 
-    /// Records the step from `old` to the current annotations. Undo and redo both come back here.
-    private func commit(replacing old: [Annotation], _ name: String) {
-        guard annotations != old else { return }
+    /// Records the step from `old` to the current document. Undo and redo both come back here.
+    private func commit(replacing old: Document, _ name: String) {
+        guard document != old else { return }
         undoManager?.registerUndo(withTarget: self) { canvas in
             MainActor.assumeIsolated {
-                let current = canvas.annotations
-                canvas.annotations = old
+                let current = canvas.document
+                canvas.document = old
                 canvas.commit(replacing: current, name)
             }
         }
@@ -132,8 +156,8 @@ final class CanvasView: NSView {
     // NOTE: dragging inside the color panel records one undo step per color it passes through.
     private func restyleSelection(_ name: String, _ change: (inout Annotation) -> Void) {
         guard let selected else { return }
-        let old = annotations
-        change(&annotations[selected])
+        let old = document
+        change(&document.annotations[selected])
         commit(replacing: old, name)
     }
 
@@ -142,22 +166,28 @@ final class CanvasView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = imagePoint(event)
         let tolerance = 6 / zoom
-        beforeDrag = annotations
+        beforeDrag = document
+        guard let shape = tool.shape else {
+            // Cropping ignores the shapes under the cursor.
+            selected = nil
+            drag = .cropping(from: point)
+            return
+        }
         if let selected {
-            let shape = annotations[selected]
-            for (handle, isStart) in [(shape.start, true), (shape.end, false)]
+            let current = document.annotations[selected]
+            for (handle, isStart) in [(current.start, true), (current.end, false)]
             where hypot(point.x - handle.x, point.y - handle.y) <= handleRadius + tolerance / 2 {
                 drag = .resizing(selected, start: isStart)
                 return
             }
         }
         // Topmost first.
-        if let hit = annotations.lastIndex(where: { $0.hitTest(point, tolerance: tolerance) }) {
+        if let hit = document.annotations.lastIndex(where: { $0.hitTest(point, tolerance: tolerance) }) {
             selected = hit
             drag = .moving(hit, from: point)
             return
         }
-        annotations.append(Annotation(kind: tool, start: point, end: point, color: color, lineWidth: lineWidth))
+        document.annotations.append(Annotation(kind: shape, start: point, end: point, color: color, lineWidth: lineWidth))
         selected = nil
         drag = .drawing
     }
@@ -166,17 +196,22 @@ final class CanvasView: NSView {
         let point = imagePoint(event)
         switch drag {
         case .drawing:
-            annotations[annotations.count - 1].end = point
+            document.annotations[document.annotations.count - 1].end = point
         case .moving(let index, let from):
             let dx = point.x - from.x
             let dy = point.y - from.y
-            annotations[index].start.x += dx
-            annotations[index].start.y += dy
-            annotations[index].end.x += dx
-            annotations[index].end.y += dy
+            document.annotations[index].start.x += dx
+            document.annotations[index].start.y += dy
+            document.annotations[index].end.x += dx
+            document.annotations[index].end.y += dy
             drag = .moving(index, from: point)
         case .resizing(let index, let start):
-            if start { annotations[index].start = point } else { annotations[index].end = point }
+            if start { document.annotations[index].start = point } else { document.annotations[index].end = point }
+        case .cropping(let from):
+            let dragged = CGRect(x: min(from.x, point.x), y: min(from.y, point.y), width: abs(point.x - from.x), height: abs(point.y - from.y))
+            // A drag that never touches the image intersects to the null rect.
+            let inside = dragged.intersection(CGRect(origin: .zero, size: natural))
+            document.crop = inside.isEmpty ? nil : inside.integral
         case nil:
             break
         }
@@ -187,16 +222,22 @@ final class CanvasView: NSView {
         switch drag {
         case .drawing:
             // A click without a drag draws nothing and clears the selection.
-            guard let drawn = annotations.last, drawn.length * zoom >= 3 else {
-                annotations = beforeDrag
+            guard let drawn = document.annotations.last, drawn.length * zoom >= 3 else {
+                document = beforeDrag
                 return
             }
-            selected = annotations.count - 1
+            selected = document.annotations.count - 1
             commit(replacing: beforeDrag, "Draw")
         case .moving:
             commit(replacing: beforeDrag, "Move")
         case .resizing:
             commit(replacing: beforeDrag, "Resize")
+        case .cropping:
+            // A click without a drag, or a sliver, removes the crop.
+            if let crop = document.crop, crop == beforeDrag.crop || crop.width * zoom < 4 || crop.height * zoom < 4 {
+                document.crop = nil
+            }
+            commit(replacing: beforeDrag, "Crop")
         case nil:
             break
         }
@@ -206,15 +247,15 @@ final class CanvasView: NSView {
 
     override func keyDown(with event: NSEvent) {
         let plain = event.modifierFlags.intersection([.command, .option, .control]).isEmpty
-        let shortcuts: [String: Annotation.Kind] = ["a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse]
+        let shortcuts: [String: Tool] = ["a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse, "c": .crop]
         if [kVK_Delete, kVK_ForwardDelete].contains(Int(event.keyCode)), let selected {
-            let old = annotations
-            annotations.remove(at: selected)
+            let old = document
+            document.annotations.remove(at: selected)
             self.selected = nil
             commit(replacing: old, "Delete")
-        } else if plain, let kind = shortcuts[event.charactersIgnoringModifiers?.lowercased() ?? ""] {
-            tool = kind
-            onToolShortcut?(kind)
+        } else if plain, let picked = shortcuts[event.charactersIgnoringModifiers?.lowercased() ?? ""] {
+            tool = picked
+            onToolShortcut?(picked)
         } else {
             super.keyDown(with: event)
         }

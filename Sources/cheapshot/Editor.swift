@@ -35,7 +35,7 @@ final class Editor: NSObject, NSWindowDelegate {
             contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         canvas = CanvasView(shot: shot)
-        let symbols = [("arrow.up.right", "Arrow (A)"), ("line.diagonal", "Line (L)"), ("rectangle", "Rectangle (R)"), ("circle", "Ellipse (O)")]
+        let symbols = [("arrow.up.right", "Arrow (A)"), ("line.diagonal", "Line (L)"), ("rectangle", "Rectangle (R)"), ("circle", "Ellipse (O)"), ("crop", "Crop (C)")]
         tools = NSSegmentedControl(
             images: symbols.map { NSImage(systemSymbolName: $0.0, accessibilityDescription: $0.1) ?? NSImage() },
             trackingMode: .selectOne, target: nil, action: #selector(toolPicked))
@@ -98,7 +98,7 @@ final class Editor: NSObject, NSWindowDelegate {
     }
 
     @objc private func toolPicked() {
-        canvas.tool = Annotation.Kind(rawValue: tools.selectedSegment) ?? .arrow
+        canvas.tool = Tool(rawValue: tools.selectedSegment) ?? .arrow
         window.makeFirstResponder(canvas)
     }
 

@@ -95,3 +95,19 @@ struct Annotation: Equatable, Sendable {
         context.fillPath()
     }
 }
+
+/// What a drag on the canvas does.
+enum Tool: Int, CaseIterable, Sendable {
+    case arrow, line, rectangle, ellipse, crop
+
+    /// The shape this tool draws, or nil for a tool that is not a shape.
+    var shape: Annotation.Kind? {
+        switch self {
+        case .arrow: .arrow
+        case .line: .line
+        case .rectangle: .rectangle
+        case .ellipse: .ellipse
+        case .crop: nil
+        }
+    }
+}
