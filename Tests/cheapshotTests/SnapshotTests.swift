@@ -41,6 +41,10 @@ func snapshotWindows() throws {
         editor.canvas.document.crop = CGRect(x: 40, y: 40, width: 420, height: 300)
         try write(editor.window, to: folder.appendingPathComponent("editor-crop-\(name).png"))
 
+        let text = TextWindow(text: "Captura rápida não custa nada\ncheapshot 2026, invoice #4821")
+        text.window.appearance = NSAppearance(named: appearance)
+        try write(text.window, to: folder.appendingPathComponent("text-\(name).png"))
+
         let settings = SettingsWindow(setHotKeysEnabled: { _ in })
         settings.window.appearance = NSAppearance(named: appearance)
         try write(settings.window, to: folder.appendingPathComponent("settings-\(name).png"))

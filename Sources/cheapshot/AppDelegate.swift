@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .region: pickAndCapture(.region)
         case .window: pickAndCapture(.window)
         case .screen: captureScreen()
+        case .text: captureText()
         case .annotate: annotateLastCapture()
         }
     }
@@ -66,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         add(.region)
         add(.window)
         add(.screen)
+        add(.text)
         menu.addItem(.separator())
         add(.annotate)
         menu.addItem(withTitle: "Save Last Capture…", action: #selector(saveLastCapture), keyEquivalent: "s").target = self
@@ -96,7 +98,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         submenu("Edit", [
             ("Undo", Selector(("undo:")), "z"),
             ("Redo", Selector(("redo:")), "Z"),
-            ("Copy", #selector(CanvasView.copy(_:)), "c"),
+            ("Cut", #selector(NSText.cut(_:)), "x"),
+            ("Copy", #selector(NSText.copy(_:)), "c"),
+            ("Paste", #selector(NSText.paste(_:)), "v"),
+            ("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         return main
     }
@@ -120,6 +125,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard hasScreenAccess() else { return }
         guard let displayID = NSScreen.underMouse?.displayID else { return }
         Task { await deliver { try await Capture.display(displayID) } }
+    }
+
+    /// Reads the text in a dragged region and opens it in an editable window.
+    private func captureText() {
+        guard hasScreenAccess() else { return }
+        Task {
+            guard case .region(let displayID, let rect) = await SelectionOverlay.pick(.region) else { return }
+            do {
+                let shot = try await Capture.display(displayID, region: rect)
+                TextWindow.open(try await TextRecognizer.read(shot.image))
+            } catch {
+                report(error)
+            }
+        }
     }
 
     private func annotateLastCapture() {
