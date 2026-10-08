@@ -21,7 +21,11 @@ func snapshotWindows() throws {
             annotations: [
                 Annotation(kind: .arrow, start: CGPoint(x: 80, y: 90), end: CGPoint(x: 230, y: 200), color: ink, lineWidth: 4),
                 Annotation(kind: .rectangle, start: CGPoint(x: 300, y: 250), end: CGPoint(x: 520, y: 330), color: ink, lineWidth: 4),
-                Annotation(kind: .ellipse, start: CGPoint(x: 60, y: 250), end: CGPoint(x: 200, y: 340), color: ink, lineWidth: 4),
+                Annotation(kind: .ellipse, start: CGPoint(x: 60, y: 250), end: CGPoint(x: 200, y: 340), color: ink, lineWidth: 4, fillOpacity: 0.35),
+                Annotation(kind: .line, start: CGPoint(x: 250, y: 370), end: CGPoint(x: 560, y: 370), color: ink, lineWidth: 24),
+                Annotation(
+                    kind: .freehand, start: CGPoint(x: 60, y: 60), end: CGPoint(x: 290, y: 70), color: ink, lineWidth: 5,
+                    points: stride(from: 0.0, through: 230.0, by: 10).map { CGPoint(x: 60 + $0, y: 60 + 22 * sin($0 / 18)) }),
                 Annotation(kind: .blur, start: CGPoint(x: 40, y: 150), end: CGPoint(x: 260, y: 215), color: ink, lineWidth: 4),
                 Annotation(kind: .pixelate, start: CGPoint(x: 330, y: 150), end: CGPoint(x: 560, y: 215), color: ink, lineWidth: 4),
                 Annotation(kind: .redact, start: CGPoint(x: 330, y: 60), end: CGPoint(x: 560, y: 100), color: .black, lineWidth: 4),
@@ -29,6 +33,9 @@ func snapshotWindows() throws {
             crop: nil)
         editor.canvas.selected = 1
         try write(editor.window, to: folder.appendingPathComponent("editor-\(name).png"))
+
+        editor.canvas.selected = 4
+        try write(editor.window, to: folder.appendingPathComponent("editor-brush-\(name).png"))
 
         editor.canvas.selected = nil
         editor.canvas.document.crop = CGRect(x: 40, y: 40, width: 420, height: 300)

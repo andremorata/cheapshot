@@ -100,3 +100,37 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
     // Outside the frame nothing changes.
     #expect(try redAfter(.blur, x: 38) == 255)
 }
+
+@Test func shiftLocksToTheCloserAxis() {
+    let anchor = CGPoint(x: 100, y: 100)
+    // Mostly sideways: keeps x, takes the anchor's y.
+    #expect(axisLocked(CGPoint(x: 180, y: 112), from: anchor) == CGPoint(x: 180, y: 100))
+    // Mostly up or down, in either direction: keeps y, takes the anchor's x.
+    #expect(axisLocked(CGPoint(x: 95, y: 20), from: anchor) == CGPoint(x: 100, y: 20))
+}
+
+@Test func shiftSquaresABoxInTheDragDirection() {
+    let anchor = CGPoint(x: 100, y: 100)
+    #expect(squared(CGPoint(x: 160, y: 120), from: anchor) == CGPoint(x: 160, y: 160))
+    // Dragging up and to the left keeps going up and to the left.
+    #expect(squared(CGPoint(x: 90, y: 40), from: anchor) == CGPoint(x: 40, y: 40))
+}
+
+@Test func filledShapesAndBrushStrokes() {
+    var box = Annotation(kind: .rectangle, start: .zero, end: CGPoint(x: 100, y: 60), color: .defaultInk, lineWidth: 4)
+    #expect(!box.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+    // Once filled, the middle is part of the shape.
+    box.fillOpacity = 0.5
+    #expect(box.hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+
+    var stroke = Annotation(
+        kind: .freehand, start: .zero, end: CGPoint(x: 40, y: 0), color: .defaultInk, lineWidth: 4,
+        points: [.zero, CGPoint(x: 20, y: 30), CGPoint(x: 40, y: 0)])
+    // The stroke bulges up to its middle point, which the start and end alone would miss.
+    #expect(stroke.bounds.height > 10)
+    #expect(stroke.hitTest(CGPoint(x: 20, y: 15), tolerance: 4))
+    // Moving it carries every point along.
+    stroke.translate(dx: 100, dy: 0)
+    #expect(stroke.points.first == CGPoint(x: 100, y: 0) && stroke.end == CGPoint(x: 140, y: 0))
+    #expect(!stroke.hitTest(CGPoint(x: 20, y: 15), tolerance: 4))
+}

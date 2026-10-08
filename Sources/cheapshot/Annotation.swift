@@ -34,12 +34,14 @@ struct RGBA: Hashable, Sendable {
 /// capture pixels divided by the capture's scale, with the origin at the bottom-left.
 struct Annotation: Equatable, Sendable {
     enum Kind: Sendable {
-        case arrow, line, rectangle, ellipse
+        case arrow, line, rectangle, ellipse, freehand
         /// Area effects. Blur and pixelate hide things from a casual look, but text under them
         /// can sometimes be recovered. Redact paints a solid block and cannot be undone by a reader.
         case blur, pixelate, redact
 
         var coversItsArea: Bool { [.blur, .pixelate, .redact].contains(self) }
+        var isStraight: Bool { self == .arrow || self == .line }
+        var canBeFilled: Bool { self == .rectangle || self == .ellipse }
     }
 
     var kind: Kind
@@ -47,12 +49,27 @@ struct Annotation: Equatable, Sendable {
     var end: CGPoint
     var color: RGBA
     var lineWidth: CGFloat
+    /// How solid the inside of a rectangle or ellipse is, from 0 (empty) to 1. The fill uses `color`.
+    var fillOpacity: CGFloat = 0
+    /// The path of a freehand stroke. Other kinds leave it empty and use `start` and `end`.
+    var points: [CGPoint] = []
 
     var frame: CGRect {
         CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
     }
 
     var length: CGFloat { hypot(end.x - start.x, end.y - start.y) }
+
+    /// The box around everything the annotation draws, stroke width aside.
+    var bounds: CGRect { kind == .freehand ? outline.boundingBoxOfPath : frame }
+
+    mutating func translate(dx: CGFloat, dy: CGFloat) {
+        start.x += dx
+        start.y += dy
+        end.x += dx
+        end.y += dy
+        points = points.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+    }
 
     /// The shape's skeleton with no stroke width.
     var outline: CGPath {
@@ -66,14 +83,26 @@ struct Annotation: Equatable, Sendable {
             return CGPath(rect: frame, transform: nil)
         case .ellipse:
             return CGPath(ellipseIn: frame, transform: nil)
+        case .freehand:
+            // Curves through the midpoints, with the recorded points as controls. It rounds off
+            // the corners that raw mouse samples leave.
+            let path = CGMutablePath()
+            guard let first = points.first else { return path }
+            path.move(to: first)
+            for (point, next) in zip(points.dropFirst(), points.dropFirst(2)) {
+                path.addQuadCurve(to: CGPoint(x: (point.x + next.x) / 2, y: (point.y + next.y) / 2), control: point)
+            }
+            path.addLine(to: points[points.count - 1])
+            return path
         }
     }
 
-    /// True when `point` is on the stroke, give or take `tolerance`. The inside of a rectangle
-    /// or ellipse does not count, so shapes drawn inside it stay reachable. An effect is hit
-    /// anywhere in its area.
+    /// True when `point` is on the stroke, give or take `tolerance`. The inside of an unfilled
+    /// rectangle or ellipse does not count, so shapes drawn inside it stay reachable. An effect
+    /// or a filled shape is hit anywhere in its area.
     func hitTest(_ point: CGPoint, tolerance: CGFloat) -> Bool {
         if kind.coversItsArea { return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+        if kind.canBeFilled, fillOpacity > 0, outline.contains(point) { return true }
         return outline.copy(strokingWithWidth: lineWidth + tolerance * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
             .contains(point)
     }
@@ -85,7 +114,13 @@ struct Annotation: Equatable, Sendable {
         switch kind {
         case .redact: return context.fill(frame)
         case .blur, .pixelate: return drawEffect(in: context, source: source, scale: scale)
-        case .arrow, .line, .rectangle, .ellipse: break
+        case .arrow, .line, .rectangle, .ellipse, .freehand: break
+        }
+        if kind.canBeFilled, fillOpacity > 0 {
+            context.setFillColor(color.cgColor.copy(alpha: color.alpha * fillOpacity) ?? color.cgColor)
+            context.addPath(outline)
+            context.fillPath()
+            context.setFillColor(color.cgColor)
         }
         context.setLineWidth(lineWidth)
         context.setLineCap(.round)
@@ -138,8 +173,8 @@ struct Annotation: Equatable, Sendable {
 }
 
 /// What a drag on the canvas does.
-enum Tool: Int, CaseIterable, Sendable {
-    case arrow, line, rectangle, ellipse, blur, pixelate, redact, crop
+enum Tool: Sendable {
+    case arrow, line, rectangle, ellipse, brush, blur, pixelate, redact, crop
 
     /// The annotation this tool draws, or nil for a tool that draws none.
     var shape: Annotation.Kind? {
@@ -148,6 +183,7 @@ enum Tool: Int, CaseIterable, Sendable {
         case .line: .line
         case .rectangle: .rectangle
         case .ellipse: .ellipse
+        case .brush: .freehand
         case .blur: .blur
         case .pixelate: .pixelate
         case .redact: .redact

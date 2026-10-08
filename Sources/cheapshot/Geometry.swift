@@ -26,3 +26,18 @@ func pixelRect(forCrop crop: CGRect, imageHeight: CGFloat, scale: CGFloat) -> CG
     CGRect(x: crop.minX * scale, y: (imageHeight - crop.maxY) * scale, width: crop.width * scale, height: crop.height * scale)
         .integral
 }
+
+/// Snaps `point` to the horizontal or vertical line through `anchor`, whichever is closer.
+func axisLocked(_ point: CGPoint, from anchor: CGPoint) -> CGPoint {
+    abs(point.x - anchor.x) >= abs(point.y - anchor.y)
+        ? CGPoint(x: point.x, y: anchor.y)
+        : CGPoint(x: anchor.x, y: point.y)
+}
+
+/// Moves `point` so the box from `anchor` to it is a square, keeping the direction of the drag.
+func squared(_ point: CGPoint, from anchor: CGPoint) -> CGPoint {
+    let dx = point.x - anchor.x
+    let dy = point.y - anchor.y
+    let side = max(abs(dx), abs(dy))
+    return CGPoint(x: anchor.x + (dx < 0 ? -side : side), y: anchor.y + (dy < 0 ? -side : side))
+}

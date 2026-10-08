@@ -19,6 +19,10 @@ final class CanvasView: NSView {
     var lineWidth: CGFloat = 4 {
         didSet { restyleSelection("Change Thickness") { $0.lineWidth = lineWidth } }
     }
+    /// From 0 (no fill) to 1. Only rectangles and ellipses use it.
+    var fillOpacity: CGFloat = 0 {
+        didSet { restyleSelection("Change Fill") { $0.fillOpacity = fillOpacity } }
+    }
     /// Called when a tool's letter key is pressed, so the toolbar can follow.
     var onToolShortcut: ((Tool) -> Void)?
 
@@ -113,6 +117,14 @@ final class CanvasView: NSView {
         context.setFillColor(.white)
         context.setStrokeColor(NSColor.controlAccentColor.cgColor)
         context.setLineWidth(1.5 / zoom)
+        // A freehand stroke has no ends worth dragging, so it gets a dashed box and no handles.
+        guard annotation.kind != .freehand else {
+            let pad = annotation.lineWidth / 2 + 4 / zoom
+            context.setLineDash(phase: 0, lengths: [4 / zoom, 3 / zoom])
+            context.stroke(annotation.bounds.insetBy(dx: -pad, dy: -pad))
+            context.setLineDash(phase: 0, lengths: [])
+            return
+        }
         for point in [annotation.start, annotation.end] {
             let dot = CGRect(x: point.x - handleRadius, y: point.y - handleRadius, width: handleRadius * 2, height: handleRadius * 2)
             context.fillEllipse(in: dot)
@@ -177,7 +189,7 @@ final class CanvasView: NSView {
             drag = .cropping(from: point)
             return
         }
-        if let selected {
+        if let selected, document.annotations[selected].kind != .freehand {
             let current = document.annotations[selected]
             for (handle, isStart) in [(current.start, true), (current.end, false)]
             where hypot(point.x - handle.x, point.y - handle.y) <= handleRadius + tolerance / 2 {
@@ -193,7 +205,9 @@ final class CanvasView: NSView {
         }
         // A redaction starts black whatever the ink color is. The color well can still change it.
         let ink = shape == .redact ? .black : color
-        document.annotations.append(Annotation(kind: shape, start: point, end: point, color: ink, lineWidth: lineWidth))
+        document.annotations.append(Annotation(
+            kind: shape, start: point, end: point, color: ink, lineWidth: lineWidth,
+            fillOpacity: fillOpacity, points: shape == .freehand ? [point] : []))
         selected = nil
         drag = .drawing
     }
@@ -202,17 +216,19 @@ final class CanvasView: NSView {
         let point = imagePoint(event)
         switch drag {
         case .drawing:
-            document.annotations[document.annotations.count - 1].end = point
+            let index = document.annotations.count - 1
+            if document.annotations[index].kind == .freehand { document.annotations[index].points.append(point) }
+            document.annotations[index].end = locked(point, to: document.annotations[index].start, at: index, event)
         case .moving(let index, let from):
-            let dx = point.x - from.x
-            let dy = point.y - from.y
-            document.annotations[index].start.x += dx
-            document.annotations[index].start.y += dy
-            document.annotations[index].end.x += dx
-            document.annotations[index].end.y += dy
+            document.annotations[index].translate(dx: point.x - from.x, dy: point.y - from.y)
             drag = .moving(index, from: point)
         case .resizing(let index, let start):
-            if start { document.annotations[index].start = point } else { document.annotations[index].end = point }
+            let shape = document.annotations[index]
+            if start {
+                document.annotations[index].start = locked(point, to: shape.end, at: index, event)
+            } else {
+                document.annotations[index].end = locked(point, to: shape.start, at: index, event)
+            }
         case .cropping(let from):
             let dragged = CGRect(x: min(from.x, point.x), y: min(from.y, point.y), width: abs(point.x - from.x), height: abs(point.y - from.y))
             // A drag that never touches the image intersects to the null rect.
@@ -223,12 +239,20 @@ final class CanvasView: NSView {
         }
     }
 
+    /// With Shift held, a line or an arrow stays horizontal or vertical, and a box stays square,
+    /// which makes an ellipse a circle. `anchor` is the end that is not moving.
+    private func locked(_ point: CGPoint, to anchor: CGPoint, at index: Int, _ event: NSEvent) -> CGPoint {
+        let kind = document.annotations[index].kind
+        guard event.modifierFlags.contains(.shift), kind != .freehand else { return point }
+        return kind.isStraight ? axisLocked(point, from: anchor) : squared(point, from: anchor)
+    }
+
     override func mouseUp(with event: NSEvent) {
         defer { drag = nil }
         switch drag {
         case .drawing:
             // A click without a drag draws nothing and clears the selection.
-            guard let drawn = document.annotations.last, drawn.length * zoom >= 3 else {
+            guard let drawn = document.annotations.last, max(drawn.bounds.width, drawn.bounds.height) * zoom >= 3 else {
                 document = beforeDrag
                 return
             }
@@ -254,7 +278,7 @@ final class CanvasView: NSView {
     override func keyDown(with event: NSEvent) {
         let plain = event.modifierFlags.intersection([.command, .option, .control]).isEmpty
         let shortcuts: [String: Tool] = [
-            "a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse,
+            "a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse, "d": .brush,
             "b": .blur, "p": .pixelate, "x": .redact, "c": .crop,
         ]
         if [kVK_Delete, kVK_ForwardDelete].contains(Int(event.keyCode)), let selected {

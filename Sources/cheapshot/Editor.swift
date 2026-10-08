@@ -6,13 +6,14 @@ final class Editor: NSObject, NSWindowDelegate {
     private static var current: Editor?
     private static let barHeight: CGFloat = 52
     /// Wide enough for the tools on the left and the two buttons on the right.
-    private static let minWidth: CGFloat = 760
+    private static let minWidth: CGFloat = 900
 
     /// Tools as they appear in the bar: shapes, then effects, then crop.
     private static let toolGroups: [[(tool: Tool, symbol: String, tip: String)]] = [
         [
             (.arrow, "arrow.up.right", "Arrow (A)"), (.line, "line.diagonal", "Line (L)"),
             (.rectangle, "rectangle", "Rectangle (R)"), (.ellipse, "circle", "Ellipse (O)"),
+            (.brush, "scribble", "Brush (D)"),
         ],
         [
             (.blur, "drop", "Blur (B)"), (.pixelate, "square.grid.3x3.fill", "Pixelate (P)"),
@@ -80,11 +81,18 @@ final class Editor: NSObject, NSWindowDelegate {
 
         let weight = NSImageView(image: NSImage(systemSymbolName: "lineweight", accessibilityDescription: "Thickness") ?? NSImage())
         weight.contentTintColor = .secondaryLabelColor
-        let slider = NSSlider(value: canvas.lineWidth, minValue: 2, maxValue: 16, target: self, action: #selector(widthPicked))
+        let slider = NSSlider(value: canvas.lineWidth, minValue: 2, maxValue: 40, target: self, action: #selector(widthPicked))
         // Applies on release, so one drag is one undo step.
         slider.isContinuous = false
         slider.toolTip = "Thickness. For blur and pixelate, strength"
-        slider.widthAnchor.constraint(equalToConstant: 100).isActive = true
+        slider.widthAnchor.constraint(equalToConstant: 90).isActive = true
+
+        let fill = NSImageView(image: NSImage(systemSymbolName: "square.lefthalf.filled", accessibilityDescription: "Fill") ?? NSImage())
+        fill.contentTintColor = .secondaryLabelColor
+        let fillSlider = NSSlider(value: canvas.fillOpacity, minValue: 0, maxValue: 1, target: self, action: #selector(fillPicked))
+        fillSlider.isContinuous = false
+        fillSlider.toolTip = "Fill opacity for rectangles and ellipses. All the way left is no fill"
+        fillSlider.widthAnchor.constraint(equalToConstant: 90).isActive = true
 
         // Plain frames with autoresizing: the bar keeps its height at the top, the canvas takes the rest.
         let bar = NSStackView(frame: CGRect(x: 0, y: canvasSize.height, width: contentSize.width, height: Self.barHeight))
@@ -92,10 +100,12 @@ final class Editor: NSObject, NSWindowDelegate {
         bar.orientation = .horizontal
         bar.spacing = 10
         bar.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        bar.setViews(toolControls + [well, weight, slider], in: .leading)
+        bar.setViews(toolControls + [well, weight, slider, fill, fillSlider], in: .leading)
         if let lastTools = toolControls.last { bar.setCustomSpacing(20, after: lastTools) }
         bar.setCustomSpacing(16, after: well)
         bar.setCustomSpacing(6, after: weight)
+        bar.setCustomSpacing(16, after: slider)
+        bar.setCustomSpacing(6, after: fill)
 
         // Standard dialog keys: Return triggers the default button, Esc triggers Cancel.
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(close))
@@ -161,6 +171,8 @@ final class Editor: NSObject, NSWindowDelegate {
     @objc private func colorPicked(_ sender: NSColorWell) { canvas.color = RGBA(sender.color) }
 
     @objc private func widthPicked(_ sender: NSSlider) { canvas.lineWidth = sender.doubleValue }
+
+    @objc private func fillPicked(_ sender: NSSlider) { canvas.fillOpacity = sender.doubleValue }
 
     func windowWillClose(_ notification: Notification) {
         if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
