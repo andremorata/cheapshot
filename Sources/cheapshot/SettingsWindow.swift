@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 /// The settings window, in three tabs: general behavior, the global shortcuts and recording.
 @MainActor
@@ -24,6 +25,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     let tabs = NSTabView()
     private let setHotKeysEnabled: @MainActor (Bool) -> Void
     private let menuBarIconChanged: @MainActor () -> Void
+    private let openAtLogin = NSButton(checkboxWithTitle: "Open at login", target: nil, action: nil)
     private let showIcon = NSButton(checkboxWithTitle: "Show icon in the menu bar", target: nil, action: nil)
     private var recorders: [HotKeyAction: ShortcutRecorder] = [:]
     private let message = NSTextField(wrappingLabelWithString: "")
@@ -52,6 +54,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
         // General.
         var general = Page()
+        openAtLogin.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        openAtLogin.target = self
+        openAtLogin.action = #selector(openAtLoginChanged)
+        general.span(openAtLogin)
         showIcon.state = Self.showsMenuBarIcon ? .on : .off
         showIcon.target = self
         showIcon.action = #selector(showIconChanged)
@@ -213,6 +219,17 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         HotKey.unregister(probe)
         return nil
+    }
+
+    /// macOS keeps the login item, so the checkbox reads it from the system and nothing is saved here.
+    @objc private func openAtLoginChanged() {
+        do {
+            if openAtLogin.state == .on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            NSAlert(error: error).runModal()
+        }
+        // The system has the last word. It can refuse, or the user may have turned the item off in System Settings.
+        openAtLogin.state = SMAppService.mainApp.status == .enabled ? .on : .off
     }
 
     @objc private func showIconChanged() {

@@ -50,7 +50,7 @@ cheapshot needs macOS 15 or later on Apple silicon. It is built and tested on ma
 
 All of them can be changed in Settings. While selecting, Esc or a right click cancels.
 
-The menu bar icon can be hidden in Settings. Open cheapshot again from Applications or Spotlight to get the settings window back.
+Settings has an option to open cheapshot at login. The menu bar icon can be hidden there too. Open cheapshot again from Applications or Spotlight to get the settings window back.
 
 ### Editor
 
