@@ -2,6 +2,7 @@ import AppKit
 import Carbon.HIToolbox
 
 /// Dims every screen and lets the user drag a region or click a window. Escape or right click cancels.
+/// Given stills of the displays, it shows those instead of the live screen.
 @MainActor
 final class SelectionOverlay {
     enum Mode { case region, window }
@@ -9,9 +10,9 @@ final class SelectionOverlay {
     private static var current: SelectionOverlay?
 
     /// Returns `nil` when the user cancels or another pick is already on screen.
-    static func pick(_ mode: Mode) async -> Capture.Target? {
+    static func pick(_ mode: Mode, over stills: [CGDirectDisplayID: Shot] = [:]) async -> Capture.Target? {
         guard current == nil else { return nil }
-        let overlay = SelectionOverlay(mode: mode)
+        let overlay = SelectionOverlay(mode: mode, stills: stills)
         current = overlay
         defer { current = nil }
         return await overlay.run()
@@ -21,7 +22,7 @@ final class SelectionOverlay {
     private var continuation: CheckedContinuation<Capture.Target?, Never>?
     private var escapeKey: UInt32?
 
-    private init(mode: Mode) {
+    private init(mode: Mode, stills: [CGDirectDisplayID: Shot]) {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         let candidates = mode == .window ? WindowCandidate.onScreen() : []
         panels = NSScreen.screens.map { screen in
@@ -30,7 +31,7 @@ final class SelectionOverlay {
                 origin: flipY(screen.frame, primaryHeight: primaryHeight).origin,
                 candidates: candidates,
                 onFinish: { [weak self] in self?.finish($0) })
-            return OverlayPanel(screen: screen, view: view)
+            return OverlayPanel(screen: screen, view: view, still: screen.displayID.flatMap { stills[$0] }?.image)
         }
     }
 
@@ -76,7 +77,7 @@ private struct WindowCandidate {
 
 /// Non-activating and never key, so the app under the overlay keeps its active look in the capture.
 private final class OverlayPanel: NSPanel {
-    init(screen: NSScreen, view: NSView) {
+    init(screen: NSScreen, view: NSView, still: CGImage?) {
         super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .screenSaver
         isOpaque = false
@@ -86,7 +87,21 @@ private final class OverlayPanel: NSPanel {
         // and the selection is drawn as a transparent hole.
         ignoresMouseEvents = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        contentView = view
+        guard let still else {
+            contentView = view
+            return
+        }
+        // The still sits in its own view under the overlay, so a drag redraws the dimming and not the picture.
+        let picture = NSImageView(image: NSImage(cgImage: still, size: screen.frame.size))
+        picture.imageScaling = .scaleAxesIndependently
+        let container = NSView(frame: view.frame)
+        // Layers keep the two apart, so the clear selection shows the still and not the live screen.
+        container.wantsLayer = true
+        for layer in [picture, view] {
+            layer.frame = container.bounds
+            container.addSubview(layer)
+        }
+        contentView = container
     }
 }
 

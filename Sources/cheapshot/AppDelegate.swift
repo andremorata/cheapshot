@@ -162,9 +162,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func captureText() {
         guard hasScreenAccess() else { return }
         Task {
-            guard let target = await SelectionOverlay.pick(.region) else { return }
             do {
-                let shot = try await Capture.shot(target)
+                guard let shot = try await pickFrozenRegion() else { return }
                 TextWindow.open(try await TextRecognizer.read(shot.image))
             } catch {
                 report(error)
@@ -185,14 +184,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func pickAndCapture(_ mode: SelectionOverlay.Mode) {
         guard hasScreenAccess() else { return }
         Task {
-            guard let target = await SelectionOverlay.pick(mode) else { return }
-            await deliver { try await Capture.shot(target) }
+            await deliver {
+                switch mode {
+                case .region: return try await self.pickFrozenRegion()
+                case .window:
+                    guard let target = await SelectionOverlay.pick(.window) else { return nil }
+                    return try await Capture.shot(target)
+                }
+            }
         }
     }
 
-    private func deliver(_ capture: () async throws -> Shot) async {
+    /// The region is dragged over a still of the screen, so the result is what was there when the
+    /// shortcut was pressed. `nil` when the user cancels.
+    private func pickFrozenRegion() async throws -> Shot? {
+        let stills = try await Capture.freeze()
+        guard case .display(let id, let region?)? = await SelectionOverlay.pick(.region, over: stills) else { return nil }
+        return stills[id]?.cropped(to: region)
+    }
+
+    /// `capture` returns `nil` when the user cancelled, and then nothing happens.
+    private func deliver(_ capture: () async throws -> Shot?) async {
         do {
-            let shot = try await capture()
+            guard let shot = try await capture() else { return }
             lastShot = shot
             Output.copy(shot)
             Self.shutter?.play()
