@@ -134,3 +134,22 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
     #expect(stroke.points.first == CGPoint(x: 100, y: 0) && stroke.end == CGPoint(x: 140, y: 0))
     #expect(!stroke.hitTest(CGPoint(x: 20, y: 15), tolerance: 4))
 }
+
+@Test func videoSizesAreEvenAndBitrateFollowsTheSettings() {
+    #expect(evenPixels(641.9) == 640)
+    #expect(evenPixels(640) == 640)
+    #expect(evenPixels(0.4) == 2)
+
+    let base = VideoSettings()
+    let medium = base.bitrate(width: 1920, height: 1080)
+    // 1920 x 1080 x 30 fps x 0.06 bits per pixel.
+    #expect(medium == 3_732_480)
+    var changed = base
+    changed.quality = .high
+    #expect(changed.bitrate(width: 1920, height: 1080) == medium * 2)
+    changed = base
+    changed.codec = .h264
+    #expect(changed.bitrate(width: 1920, height: 1080) > medium)
+    // A tiny region still gets enough bits to be watchable.
+    #expect(base.bitrate(width: 64, height: 64) == 200_000)
+}

@@ -1,12 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
 
-enum Pick: Sendable {
-    /// The rect is in the display's own point space with a top-left origin.
-    case region(CGDirectDisplayID, CGRect)
-    case window(CGWindowID)
-}
-
 /// Dims every screen and lets the user drag a region or click a window. Escape or right click cancels.
 @MainActor
 final class SelectionOverlay {
@@ -15,7 +9,7 @@ final class SelectionOverlay {
     private static var current: SelectionOverlay?
 
     /// Returns `nil` when the user cancels or another pick is already on screen.
-    static func pick(_ mode: Mode) async -> Pick? {
+    static func pick(_ mode: Mode) async -> Capture.Target? {
         guard current == nil else { return nil }
         let overlay = SelectionOverlay(mode: mode)
         current = overlay
@@ -24,7 +18,7 @@ final class SelectionOverlay {
     }
 
     private var panels: [OverlayPanel] = []
-    private var continuation: CheckedContinuation<Pick?, Never>?
+    private var continuation: CheckedContinuation<Capture.Target?, Never>?
     private var escapeKey: UInt32?
 
     private init(mode: Mode) {
@@ -40,7 +34,7 @@ final class SelectionOverlay {
         }
     }
 
-    private func run() async -> Pick? {
+    private func run() async -> Capture.Target? {
         await withCheckedContinuation { continuation in
             self.continuation = continuation
             for panel in panels { panel.orderFrontRegardless() }
@@ -49,7 +43,7 @@ final class SelectionOverlay {
         }
     }
 
-    private func finish(_ pick: Pick?) {
+    private func finish(_ pick: Capture.Target?) {
         if let escapeKey { HotKey.unregister(escapeKey) }
         escapeKey = nil
         for panel in panels { panel.orderOut(nil) }
@@ -102,13 +96,13 @@ private final class OverlayView: NSView {
     /// This screen's top-left corner in global top-left coordinates.
     private let origin: CGPoint
     private let candidates: [WindowCandidate]
-    private let onFinish: (Pick?) -> Void
+    private let onFinish: (Capture.Target?) -> Void
 
     private var dragStart: CGPoint?
     private var hovered: WindowCandidate?
     private var selection: CGRect? { didSet { needsDisplay = true } }
 
-    init(mode: SelectionOverlay.Mode, screen: NSScreen, origin: CGPoint, candidates: [WindowCandidate], onFinish: @escaping (Pick?) -> Void) {
+    init(mode: SelectionOverlay.Mode, screen: NSScreen, origin: CGPoint, candidates: [WindowCandidate], onFinish: @escaping (Capture.Target?) -> Void) {
         self.mode = mode
         self.screen = screen
         self.origin = origin
@@ -165,7 +159,7 @@ private final class OverlayView: NSView {
         // A click without a drag cancels.
         guard let selection, selection.width >= 2, selection.height >= 2 else { return onFinish(nil) }
         guard let displayID = screen.displayID else { return onFinish(nil) }
-        onFinish(.region(displayID, selection.integral))
+        onFinish(.display(displayID, region: selection.integral))
     }
 
     override func mouseMoved(with event: NSEvent) {

@@ -41,3 +41,8 @@ func squared(_ point: CGPoint, from anchor: CGPoint) -> CGPoint {
     let side = max(abs(dx), abs(dy))
     return CGPoint(x: anchor.x + (dx < 0 ? -side : side), y: anchor.y + (dy < 0 ? -side : side))
 }
+
+/// Rounds a length down to an even number of pixels, which video codecs require. Never below 2.
+func evenPixels(_ length: CGFloat) -> Int {
+    max(Int(length) / 2 * 2, 2)
+}

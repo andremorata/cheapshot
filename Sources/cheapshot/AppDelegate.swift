@@ -1,5 +1,7 @@
 import AppKit
+import AVFoundation
 import Carbon.HIToolbox
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -7,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var lastShot: Shot?
     private var askedForScreenAccess = false
     private var hotKeyTokens: [UInt32] = []
+    private var recorder: Recorder?
+    /// True from the hotkey press until the stream is running, so a second press cannot start another.
+    private var isStartingRecording = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -31,7 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 if let token { hotKeyTokens.append(token) }
             }
         }
-        statusItem?.menu = makeMenu()
+        // While recording, the status item is a stop button and has no menu.
+        if recorder == nil { statusItem?.menu = makeMenu() }
     }
 
     private func perform(_ action: HotKeyAction) {
@@ -41,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .screen: captureScreen()
         case .text: captureText()
         case .annotate: annotateLastCapture()
+        case .record: recorder == nil ? record(.region) : stopRecording()
         }
     }
 
@@ -71,6 +78,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(.separator())
         add(.annotate)
         menu.addItem(withTitle: "Save Last Capture…", action: #selector(saveLastCapture), keyEquivalent: "s").target = self
+        menu.addItem(.separator())
+        add(.record)
+        menu.addItem(withTitle: "Record Window", action: #selector(recordWindow), keyEquivalent: "").target = self
+        menu.addItem(withTitle: "Record Screen", action: #selector(recordScreen), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -124,16 +135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func captureScreen() {
         guard hasScreenAccess() else { return }
         guard let displayID = NSScreen.underMouse?.displayID else { return }
-        Task { await deliver { try await Capture.display(displayID) } }
+        Task { await deliver { try await Capture.shot(.display(displayID)) } }
     }
 
     /// Reads the text in a dragged region and opens it in an editable window.
     private func captureText() {
         guard hasScreenAccess() else { return }
         Task {
-            guard case .region(let displayID, let rect) = await SelectionOverlay.pick(.region) else { return }
+            guard let target = await SelectionOverlay.pick(.region) else { return }
             do {
-                let shot = try await Capture.display(displayID, region: rect)
+                let shot = try await Capture.shot(target)
                 TextWindow.open(try await TextRecognizer.read(shot.image))
             } catch {
                 report(error)
@@ -154,11 +165,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func pickAndCapture(_ mode: SelectionOverlay.Mode) {
         guard hasScreenAccess() else { return }
         Task {
-            switch await SelectionOverlay.pick(mode) {
-            case .region(let displayID, let rect): await deliver { try await Capture.display(displayID, region: rect) }
-            case .window(let id): await deliver { try await Capture.window(id) }
-            case nil: break
-            }
+            guard let target = await SelectionOverlay.pick(mode) else { return }
+            await deliver { try await Capture.shot(target) }
         }
     }
 
@@ -171,6 +179,111 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             Thumbnail.show(shot) { Editor.open(shot) }
         } catch {
             report(error)
+        }
+    }
+
+    // MARK: Recording
+
+    private enum RecordMode { case region, window, screen }
+
+    @objc private func recordWindow() { record(.window) }
+    @objc private func recordScreen() { record(.screen) }
+
+    private func record(_ mode: RecordMode) {
+        guard recorder == nil, !isStartingRecording, hasScreenAccess() else { return }
+        isStartingRecording = true
+        Task { [self] in
+            defer { isStartingRecording = false }
+            let target: Capture.Target? = switch mode {
+            case .region: await SelectionOverlay.pick(.region)
+            case .window: await SelectionOverlay.pick(.window)
+            case .screen: NSScreen.underMouse?.displayID.map { .display($0) }
+            }
+            guard let target else { return }
+            do {
+                // NOTE: fixed defaults (HEVC, 30 fps, 1x, medium) until the settings screen exposes them.
+                let recorder = try await Recorder.start(target, settings: VideoSettings())
+                recorder.onInterrupted = { [weak self] in self?.stopRecording() }
+                self.recorder = recorder
+                showStopButton()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    /// Turns the status item into a stop button that counts the seconds.
+    private func showStopButton() {
+        guard let statusItem, let button = statusItem.button else { return }
+        statusItem.menu = nil
+        statusItem.length = NSStatusItem.variableLength
+        // The red is baked into the image. A tint on the button also darkens the title, which then
+        // disappears on a dark menu bar. The title is left plain so the system picks its color.
+        let stop = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: "Stop recording")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))
+        stop?.isTemplate = false
+        button.image = stop
+        button.imagePosition = .imageLeading
+        // Fixed-width digits, so the item does not twitch every second.
+        button.font = .monospacedDigitSystemFont(ofSize: NSFont.menuBarFont(ofSize: 0).pointSize, weight: .regular)
+        button.target = self
+        button.action = #selector(stopRecording)
+        let started = Date.now
+        Task {
+            while recorder != nil {
+                let seconds = Int(Date.now.timeIntervalSince(started))
+                button.title = String(format: " %d:%02d", seconds / 60, seconds % 60)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    @objc private func stopRecording() {
+        guard let recorder else { return }
+        self.recorder = nil
+        if let statusItem, let button = statusItem.button {
+            button.title = ""
+            button.image = Self.menuBarIcon
+            button.imagePosition = .imageOnly
+            button.action = nil
+            statusItem.length = NSStatusItem.squareLength
+            statusItem.menu = makeMenu()
+        }
+        Task {
+            do { try await saveRecording(try await recorder.stop()) } catch { report(error) }
+        }
+    }
+
+    /// Asks where the recording goes. Cancelling asks once more before the file is thrown away.
+    private func saveRecording(_ temporary: URL) async throws {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = Output.fileName("mp4")
+        panel.directoryURL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+        NSApp.activate()
+        while true {
+            if panel.runModal() == .OK, let destination = panel.url {
+                // The panel already asked about replacing an existing file.
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.moveItem(at: temporary, to: destination)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([destination as NSURL])
+                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: destination))
+                generator.appliesPreferredTrackTransform = true
+                if let frame = try? await generator.image(at: .zero).image {
+                    Thumbnail.show(Shot(image: frame, scale: 1)) { NSWorkspace.shared.activateFileViewerSelecting([destination]) }
+                }
+                return
+            }
+            let alert = NSAlert()
+            alert.messageText = "Discard this recording?"
+            alert.informativeText = "It has not been saved anywhere yet."
+            alert.addButton(withTitle: "Save…")
+            alert.addButton(withTitle: "Discard")
+            if alert.runModal() != .alertFirstButtonReturn {
+                try? FileManager.default.removeItem(at: temporary)
+                return
+            }
         }
     }
 

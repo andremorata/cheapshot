@@ -16,9 +16,7 @@ enum Output {
     static func save(_ shot: Shot) throws {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png, .jpeg]
-        let stamp = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash)
-            .time(includingFractionalSeconds: false).timeSeparator(.omitted))
-        panel.nameFieldStringValue = "cheapshot \(stamp).png"
+        panel.nameFieldStringValue = fileName("png")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let isJPEG = UTType(filenameExtension: url.pathExtension)?.conforms(to: .jpeg) ?? false
@@ -28,6 +26,13 @@ enum Output {
             : bitmap(shot).representation(using: .png, properties: [:])
         guard let data else { throw CocoaError(.fileWriteUnknown) }
         try data.write(to: url, options: .atomic)
+    }
+
+    /// A default name with the date and time, such as "cheapshot 2026-10-08T112033Z.png".
+    static func fileName(_ fileExtension: String) -> String {
+        let stamp = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash)
+            .time(includingFractionalSeconds: false).timeSeparator(.omitted))
+        return "cheapshot \(stamp).\(fileExtension)"
     }
 
     private static func bitmap(_ shot: Shot) -> NSBitmapImageRep {
