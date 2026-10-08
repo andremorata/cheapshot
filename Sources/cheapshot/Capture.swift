@@ -5,6 +5,12 @@ import ScreenCaptureKit
 struct Shot {
     let image: CGImage
     let scale: CGFloat
+
+    /// The part inside `region`, which is in points with a top-left origin.
+    func cropped(to region: CGRect) -> Shot? {
+        let pixels = region.applying(CGAffineTransform(scaleX: scale, y: scale)).integral
+        return image.cropping(to: pixels).map { Shot(image: $0, scale: scale) }
+    }
 }
 
 enum CaptureError: LocalizedError {
@@ -60,6 +66,19 @@ enum Capture {
             let filter = SCContentFilter(desktopIndependentWindow: window)
             return (filter, filter.contentRect.size, nil)
         }
+    }
+
+    /// Every display as it looks right now. A region picked over these stills shows the moment
+    /// the shortcut was pressed, open menus included, instead of the moment the drag ended.
+    static func freeze() async throws -> [CGDirectDisplayID: Shot] {
+        var stills: [CGDirectDisplayID: Shot] = [:]
+        // NOTE: one display after the other, so a second display freezes a moment later than the first.
+        // The one under the mouse goes first. Capture them together if that gap ever shows.
+        let screens = [NSScreen.underMouse].compactMap { $0 } + NSScreen.screens
+        for id in screens.compactMap(\.displayID) where stills[id] == nil {
+            stills[id] = try await shot(.display(id))
+        }
+        return stills
     }
 
     static func shot(_ target: Target) async throws -> Shot {
