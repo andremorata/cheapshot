@@ -6,7 +6,7 @@ final class Editor: NSObject, NSWindowDelegate {
     private static var current: Editor?
     private static let barHeight: CGFloat = 40
     /// Wide enough for the tools on the left and the two buttons on the right.
-    private static let minWidth: CGFloat = 560
+    private static let minWidth: CGFloat = 720
 
     static func open(_ shot: Shot) {
         if let current {
@@ -35,7 +35,13 @@ final class Editor: NSObject, NSWindowDelegate {
             contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         canvas = CanvasView(shot: shot)
-        let symbols = [("arrow.up.right", "Arrow (A)"), ("line.diagonal", "Line (L)"), ("rectangle", "Rectangle (R)"), ("circle", "Ellipse (O)"), ("crop", "Crop (C)")]
+        // In the order of `Tool`.
+        let symbols = [
+            ("arrow.up.right", "Arrow (A)"), ("line.diagonal", "Line (L)"), ("rectangle", "Rectangle (R)"), ("circle", "Ellipse (O)"),
+            ("drop", "Blur (B)"), ("square.grid.3x3.fill", "Pixelate (P)"),
+            ("rectangle.fill", "Redact (X). A solid block, the safe choice for sensitive text"),
+            ("crop", "Crop (C)"),
+        ]
         tools = NSSegmentedControl(
             images: symbols.map { NSImage(systemSymbolName: $0.0, accessibilityDescription: $0.1) ?? NSImage() },
             trackingMode: .selectOne, target: nil, action: #selector(toolPicked))

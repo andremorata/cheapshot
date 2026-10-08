@@ -86,7 +86,7 @@ final class CanvasView: NSView {
         context.clip(to: rect)
         context.translateBy(x: rect.minX, y: rect.minY)
         context.scaleBy(x: zoom, y: zoom)
-        for annotation in document.annotations { annotation.draw(in: context) }
+        for annotation in document.annotations { annotation.draw(in: context, source: shot.image, scale: shot.scale) }
         if let crop = document.crop { drawCrop(crop, in: context) }
         if let selected { drawHandles(for: document.annotations[selected], in: context) }
         context.restoreGState()
@@ -130,7 +130,7 @@ final class CanvasView: NSView {
         guard let context else { return shot }
         context.draw(shot.image, in: CGRect(x: 0, y: 0, width: width, height: height))
         context.scaleBy(x: shot.scale, y: shot.scale)
-        for annotation in document.annotations { annotation.draw(in: context) }
+        for annotation in document.annotations { annotation.draw(in: context, source: shot.image, scale: shot.scale) }
         guard var image = context.makeImage() else { return shot }
         if let crop = document.crop {
             image = image.cropping(to: pixelRect(forCrop: crop, imageHeight: natural.height, scale: shot.scale)) ?? image
@@ -187,7 +187,9 @@ final class CanvasView: NSView {
             drag = .moving(hit, from: point)
             return
         }
-        document.annotations.append(Annotation(kind: shape, start: point, end: point, color: color, lineWidth: lineWidth))
+        // A redaction starts black whatever the ink color is. The color well can still change it.
+        let ink = shape == .redact ? .black : color
+        document.annotations.append(Annotation(kind: shape, start: point, end: point, color: ink, lineWidth: lineWidth))
         selected = nil
         drag = .drawing
     }
@@ -247,7 +249,10 @@ final class CanvasView: NSView {
 
     override func keyDown(with event: NSEvent) {
         let plain = event.modifierFlags.intersection([.command, .option, .control]).isEmpty
-        let shortcuts: [String: Tool] = ["a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse, "c": .crop]
+        let shortcuts: [String: Tool] = [
+            "a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse,
+            "b": .blur, "p": .pixelate, "x": .redact, "c": .crop,
+        ]
         if [kVK_Delete, kVK_ForwardDelete].contains(Int(event.keyCode)), let selected {
             let old = document
             document.annotations.remove(at: selected)

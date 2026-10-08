@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 /// A color that can cross actors and be compared, which `NSColor` cannot promise.
 struct RGBA: Hashable, Sendable {
@@ -8,6 +9,7 @@ struct RGBA: Hashable, Sendable {
     var alpha: CGFloat
 
     static let defaultInk = RGBA(red: 1, green: 0.23, blue: 0.19, alpha: 1)
+    static let black = RGBA(red: 0, green: 0, blue: 0, alpha: 1)
 
     init(red: CGFloat, green: CGFloat, blue: CGFloat, alpha: CGFloat) {
         self.red = red
@@ -28,11 +30,16 @@ struct RGBA: Hashable, Sendable {
     var nsColor: NSColor { NSColor(srgbRed: red, green: green, blue: blue, alpha: alpha) }
 }
 
-/// A shape drawn over the capture. Coordinates are in image points, which are capture pixels
-/// divided by the capture's scale, with the origin at the bottom-left.
+/// A shape or an effect drawn over the capture. Coordinates are in image points, which are
+/// capture pixels divided by the capture's scale, with the origin at the bottom-left.
 struct Annotation: Equatable, Sendable {
-    enum Kind: Int, CaseIterable, Sendable {
+    enum Kind: Sendable {
         case arrow, line, rectangle, ellipse
+        /// Area effects. Blur and pixelate hide things from a casual look, but text under them
+        /// can sometimes be recovered. Redact paints a solid block and cannot be undone by a reader.
+        case blur, pixelate, redact
+
+        var coversItsArea: Bool { [.blur, .pixelate, .redact].contains(self) }
     }
 
     var kind: Kind
@@ -55,7 +62,7 @@ struct Annotation: Equatable, Sendable {
             path.move(to: start)
             path.addLine(to: end)
             return path
-        case .rectangle:
+        case .rectangle, .blur, .pixelate, .redact:
             return CGPath(rect: frame, transform: nil)
         case .ellipse:
             return CGPath(ellipseIn: frame, transform: nil)
@@ -63,15 +70,23 @@ struct Annotation: Equatable, Sendable {
     }
 
     /// True when `point` is on the stroke, give or take `tolerance`. The inside of a rectangle
-    /// or ellipse does not count, so shapes drawn inside it stay reachable.
+    /// or ellipse does not count, so shapes drawn inside it stay reachable. An effect is hit
+    /// anywhere in its area.
     func hitTest(_ point: CGPoint, tolerance: CGFloat) -> Bool {
-        outline.copy(strokingWithWidth: lineWidth + tolerance * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
+        if kind.coversItsArea { return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+        return outline.copy(strokingWithWidth: lineWidth + tolerance * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
             .contains(point)
     }
 
-    func draw(in context: CGContext) {
+    /// `source` is the untouched capture and `scale` its pixels per point. Effects read from it.
+    func draw(in context: CGContext, source: CGImage, scale: CGFloat) {
         context.setStrokeColor(color.cgColor)
         context.setFillColor(color.cgColor)
+        switch kind {
+        case .redact: return context.fill(frame)
+        case .blur, .pixelate: return drawEffect(in: context, source: source, scale: scale)
+        case .arrow, .line, .rectangle, .ellipse: break
+        }
         context.setLineWidth(lineWidth)
         context.setLineCap(.round)
         context.setLineJoin(.round)
@@ -94,19 +109,48 @@ struct Annotation: Equatable, Sendable {
         context.closePath()
         context.fillPath()
     }
+
+    private static let filters = CIContext()
+
+    /// Filters the piece of the capture under the frame and paints it back in place. The
+    /// thickness setting doubles as strength.
+    // NOTE: the filter runs again on every redraw. Cache the result per annotation if dragging gets slow.
+    private func drawEffect(in context: CGContext, source: CGImage, scale: CGFloat) {
+        let imageHeight = CGFloat(source.height) / scale
+        let pixels = pixelRect(forCrop: frame, imageHeight: imageHeight, scale: scale)
+            .intersection(CGRect(x: 0, y: 0, width: source.width, height: source.height))
+        guard !pixels.isEmpty, let patch = source.cropping(to: pixels) else { return }
+        // Clamping repeats the edge pixels outward, so the blur does not fade to clear at the borders.
+        let input = CIImage(cgImage: patch)
+        let strength = lineWidth * scale
+        let filtered = kind == .blur
+            ? input.clampedToExtent().applyingGaussianBlur(sigma: strength * 2)
+            : input.clampedToExtent().applyingFilter("CIPixellate", parameters: [
+                kCIInputScaleKey: max(strength * 2.5, 2),
+                kCIInputCenterKey: CIVector(x: 0, y: 0),
+            ])
+        guard let output = Self.filters.createCGImage(filtered, from: input.extent) else { return }
+        let target = CGRect(
+            x: pixels.minX / scale, y: imageHeight - pixels.maxY / scale,
+            width: pixels.width / scale, height: pixels.height / scale)
+        context.draw(output, in: target)
+    }
 }
 
 /// What a drag on the canvas does.
 enum Tool: Int, CaseIterable, Sendable {
-    case arrow, line, rectangle, ellipse, crop
+    case arrow, line, rectangle, ellipse, blur, pixelate, redact, crop
 
-    /// The shape this tool draws, or nil for a tool that is not a shape.
+    /// The annotation this tool draws, or nil for a tool that draws none.
     var shape: Annotation.Kind? {
         switch self {
         case .arrow: .arrow
         case .line: .line
         case .rectangle: .rectangle
         case .ellipse: .ellipse
+        case .blur: .blur
+        case .pixelate: .pixelate
+        case .redact: .redact
         case .crop: nil
         }
     }

@@ -40,6 +40,9 @@ import Testing
     #expect(!shape(.rectangle).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
     #expect(shape(.ellipse).hitTest(CGPoint(x: 0, y: 30), tolerance: 4))
     #expect(!shape(.ellipse).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+    // An effect covers its area, so its middle counts.
+    #expect(shape(.redact).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+    #expect(!shape(.redact).hitTest(CGPoint(x: 150, y: 30), tolerance: 4))
 }
 
 @Test func readsLabelsAndStoresShortcuts() throws {
@@ -63,4 +66,37 @@ import Testing
     // 300x200 pt image at 2x. A 100x50 pt crop whose top edge is 30 pt below the image top.
     let crop = CGRect(x: 10, y: 120, width: 100, height: 50)
     #expect(pixelRect(forCrop: crop, imageHeight: 200, scale: 2) == CGRect(x: 20, y: 60, width: 200, height: 100))
+}
+
+/// Renders one effect over a 40x40 image whose left half is black and right half is white,
+/// and returns the red channel of the pixel at `x` on the middle row.
+private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
+    func makeContext() throws -> CGContext {
+        try #require(CGContext(
+            data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    }
+    let source = try makeContext()
+    source.setFillColor(.black)
+    source.fill(CGRect(x: 0, y: 0, width: 20, height: 40))
+    source.setFillColor(.white)
+    source.fill(CGRect(x: 20, y: 0, width: 20, height: 40))
+    let image = try #require(source.makeImage())
+
+    let output = try makeContext()
+    output.draw(image, in: CGRect(x: 0, y: 0, width: 40, height: 40))
+    let effect = Annotation(kind: kind, start: CGPoint(x: 5, y: 5), end: CGPoint(x: 35, y: 35), color: .black, lineWidth: 4)
+    effect.draw(in: output, source: image, scale: 1)
+    let bytes = try #require(output.data).assumingMemoryBound(to: UInt8.self)
+    return bytes[20 * output.bytesPerRow + x * 4]
+}
+
+@Test func effectsChangeThePixelsTheyCover() throws {
+    // Redact paints solid black over the white half.
+    #expect(try redAfter(.redact, x: 30) == 0)
+    // Blur and pixelate mix black and white near the edge, so a pure white pixel turns gray.
+    #expect((1...254).contains(try redAfter(.blur, x: 22)))
+    #expect((1...254).contains(try redAfter(.pixelate, x: 22)))
+    // Outside the frame nothing changes.
+    #expect(try redAfter(.blur, x: 38) == 255)
 }
