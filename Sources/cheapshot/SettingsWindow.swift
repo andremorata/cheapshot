@@ -6,30 +6,70 @@ import Carbon.HIToolbox
 final class SettingsWindow: NSObject, NSWindowDelegate {
     private static var current: SettingsWindow?
 
+    static let showMenuBarIconKey = "general.showMenuBarIcon"
+
+    /// On unless the user turned it off.
+    static var showsMenuBarIcon: Bool { UserDefaults.standard.object(forKey: showMenuBarIconKey) as? Bool ?? true }
+
     /// `setHotKeysEnabled(false)` runs while a shortcut is being typed, so a combination that is
     /// already bound gets recorded instead of fired. `true` registers them again from the saved values.
-    static func show(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void) {
-        if current == nil { current = SettingsWindow(setHotKeysEnabled: setHotKeysEnabled) }
+    /// `menuBarIconChanged` runs after the icon option is switched.
+    static func show(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void, menuBarIconChanged: @escaping @MainActor () -> Void) {
+        if current == nil { current = SettingsWindow(setHotKeysEnabled: setHotKeysEnabled, menuBarIconChanged: menuBarIconChanged) }
         NSApp.activate()
         current?.window.makeKeyAndOrderFront(nil)
     }
 
     let window: NSWindow
     private let setHotKeysEnabled: @MainActor (Bool) -> Void
+    private let menuBarIconChanged: @MainActor () -> Void
+    private let showIcon = NSButton(checkboxWithTitle: "Show icon in the menu bar", target: nil, action: nil)
     private var recorders: [HotKeyAction: ShortcutRecorder] = [:]
     private let message = NSTextField(wrappingLabelWithString: "")
+    private var codec = NSSegmentedControl()
+    private var resolution = NSSegmentedControl()
+    private var frameRate = NSSegmentedControl()
+    private var quality = NSSegmentedControl()
+    private let estimate = NSTextField(wrappingLabelWithString: "")
 
-    init(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void) {
+    init(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void, menuBarIconChanged: @escaping @MainActor () -> Void = {}) {
         self.setHotKeysEnabled = setHotKeysEnabled
+        self.menuBarIconChanged = menuBarIconChanged
         window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         super.init()
 
-        let hint = NSTextField(wrappingLabelWithString: "Click a shortcut, then press the new keys. Esc keeps the current one.")
-        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        hint.textColor = .secondaryLabelColor
-        hint.preferredMaxLayoutWidth = 300
+        func header(_ title: String) -> NSTextField {
+            let label = NSTextField(labelWithString: title)
+            label.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+            return label
+        }
+        func note(_ text: String) -> NSTextField {
+            let label = NSTextField(wrappingLabelWithString: text)
+            label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            label.textColor = .secondaryLabelColor
+            label.preferredMaxLayoutWidth = 320
+            return label
+        }
 
-        var rows: [[NSView]] = [[hint]] + HotKeyAction.allCases.map { action in
+        var rows: [[NSView]] = []
+        // Rows that hold one view across both columns: headers, notes and messages.
+        var spanning: [Int] = []
+        func span(_ view: NSView) {
+            spanning.append(rows.count)
+            rows.append([view])
+        }
+
+        showIcon.state = Self.showsMenuBarIcon ? .on : .off
+        showIcon.target = self
+        showIcon.action = #selector(showIconChanged)
+        span(header("General"))
+        span(showIcon)
+        span(note("With the icon hidden, open cheapshot again from Applications or Spotlight to come back to this window. The shortcuts keep working."))
+
+        let shortcutsRow = rows.count
+        span(header("Shortcuts"))
+        span(note("Click a shortcut, then press the new keys. Esc keeps the current one."))
+        rows += HotKeyAction.allCases.map { action in
             let recorder = ShortcutRecorder(shortcut: .current(for: action))
             recorder.onRecording = { [weak self] recording in self?.recordingChanged(recording, for: action) }
             recorder.validate = { [weak self] in self?.problem(with: $0, for: action) }
@@ -41,22 +81,53 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         rows.append([NSGridCell.emptyContentView, NSButton(title: "Restore Defaults", target: self, action: #selector(restoreDefaults))])
         message.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         message.textColor = .systemRed
-        message.preferredMaxLayoutWidth = 300
-        rows.append([message])
+        message.preferredMaxLayoutWidth = 320
+        let messageRow = rows.count
+        span(message)
+
+        // Recording. Each control is a short list of choices, in the order of the model's cases.
+        let video = VideoSettings.load()
+        func picker(_ labels: [String], selected: Int, tip: String) -> NSSegmentedControl {
+            let control = NSSegmentedControl(labels: labels, trackingMode: .selectOne, target: self, action: #selector(videoChanged))
+            control.segmentDistribution = .fillEqually
+            control.selectedSegment = selected
+            control.toolTip = tip
+            return control
+        }
+        codec = picker(["HEVC", "H.264"], selected: VideoSettings.Codec.allCases.firstIndex(of: video.codec) ?? 0,
+                       tip: "HEVC makes smaller files. H.264 plays on older devices and some websites that reject HEVC")
+        resolution = picker(["Standard", "Retina"], selected: video.nativeResolution ? 1 : 0,
+                            tip: "Standard records one pixel per point. Retina records every pixel of the screen, about four times the data")
+        frameRate = picker(VideoSettings.frameRates.map { "\($0) fps" }, selected: VideoSettings.frameRates.firstIndex(of: video.framesPerSecond) ?? 0,
+                           tip: "60 fps is smoother for motion and about doubles the file size")
+        quality = picker(["Low", "Medium", "High"], selected: VideoSettings.Quality.allCases.firstIndex(of: video.quality) ?? 1,
+                         tip: "How many bits the encoder may spend. Each step up doubles the file size")
+        let recordingRow = rows.count
+        span(header("Recording"))
+        rows.append([NSTextField(labelWithString: "Codec"), codec])
+        rows.append([NSTextField(labelWithString: "Resolution"), resolution])
+        rows.append([NSTextField(labelWithString: "Frame rate"), frameRate])
+        rows.append([NSTextField(labelWithString: "Quality"), quality])
+        estimate.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        estimate.textColor = .secondaryLabelColor
+        estimate.preferredMaxLayoutWidth = 320
+        span(estimate)
+        updateEstimate(video)
 
         let grid = NSGridView(views: rows)
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         grid.rowSpacing = 10
         grid.columnSpacing = 12
-        // The hint and the message span both columns. The message keeps room for two lines even
-        // when empty, so the window does not jump.
-        for row in [0, rows.count - 1] {
+        for row in spanning {
             grid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2), verticalRange: NSRange(location: row, length: 1))
             grid.cell(atColumnIndex: 0, rowIndex: row).xPlacement = .leading
         }
-        grid.row(at: 0).bottomPadding = 6
-        grid.row(at: rows.count - 1).height = 28
+        // Room for two lines even when empty, so the window does not jump when a message appears.
+        grid.row(at: messageRow).height = 28
+        // Air above each section after the first.
+        grid.row(at: shortcutsRow).topPadding = 10
+        grid.row(at: recordingRow).topPadding = 6
         grid.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
@@ -92,6 +163,27 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         }
         HotKey.unregister(probe)
         return nil
+    }
+
+    @objc private func showIconChanged() {
+        UserDefaults.standard.set(showIcon.state == .on, forKey: Self.showMenuBarIconKey)
+        menuBarIconChanged()
+    }
+
+    @objc private func videoChanged() {
+        var video = VideoSettings()
+        video.codec = VideoSettings.Codec.allCases[max(codec.selectedSegment, 0)]
+        video.nativeResolution = resolution.selectedSegment == 1
+        video.framesPerSecond = VideoSettings.frameRates[max(frameRate.selectedSegment, 0)]
+        video.quality = VideoSettings.Quality.allCases[max(quality.selectedSegment, 0)]
+        video.save()
+        updateEstimate(video)
+    }
+
+    /// Puts the choices in terms of file size, for a Full HD area, which is easier to judge than a bitrate.
+    private func updateEstimate(_ video: VideoSettings) {
+        let megabytes = video.megabytesPerMinute(width: 1920, height: 1080)
+        estimate.stringValue = String(format: "About %.0f MB per minute for a 1920 × 1080 recording, before audio.", megabytes)
     }
 
     @objc private func restoreDefaults() {

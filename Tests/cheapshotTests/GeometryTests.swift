@@ -176,3 +176,24 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
     defaults.set(9.0, forKey: "record.microphoneVolume")
     #expect(RecordOptions.load(from: defaults).microphoneVolume == 4)
 }
+
+@Test func videoSettingsAreSavedAndEstimated() throws {
+    let name = "cheapshot-test-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    #expect(VideoSettings.load(from: defaults) == VideoSettings())
+
+    var chosen = VideoSettings()
+    chosen.codec = .h264
+    chosen.quality = .low
+    chosen.framesPerSecond = 60
+    chosen.nativeResolution = true
+    chosen.save(to: defaults)
+    #expect(VideoSettings.load(from: defaults) == chosen)
+    // A frame rate the picker does not offer falls back to the default.
+    defaults.set(24, forKey: "video.framesPerSecond")
+    #expect(VideoSettings.load(from: defaults).framesPerSecond == 30)
+
+    // 3 732 480 bits per second is 28 MB per minute.
+    #expect(abs(VideoSettings().megabytesPerMinute(width: 1920, height: 1080) - 27.99) < 0.01)
+}

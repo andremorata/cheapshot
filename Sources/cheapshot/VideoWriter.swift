@@ -2,8 +2,9 @@ import Accelerate
 import AVFoundation
 
 struct VideoSettings: Equatable, Sendable {
-    enum Codec: String, Sendable { case hevc, h264 }
-    enum Quality: String, Sendable { case low, medium, high }
+    enum Codec: String, CaseIterable, Sendable { case hevc, h264 }
+    enum Quality: String, CaseIterable, Sendable { case low, medium, high }
+    static let frameRates = [30, 60]
 
     var codec: Codec = .hevc
     var framesPerSecond = 30
@@ -31,6 +32,28 @@ struct VideoSettings: Equatable, Sendable {
         // H.264 needs more bits than HEVC for the same picture.
         let codecCost = codec == .hevc ? 1.0 : 1.6
         return max(Int(Double(width * height * framesPerSecond) * perPixel * codecCost), 200_000)
+    }
+
+    /// The video's share of the file size, in megabytes per minute. Audio adds about 1 MB per minute.
+    func megabytesPerMinute(width: Int, height: Int) -> Double {
+        Double(bitrate(width: width, height: height)) * 60 / 8 / 1_000_000
+    }
+
+    /// The choices made in the settings window. Audio options come from the record panel instead.
+    static func load(from defaults: UserDefaults = .standard) -> VideoSettings {
+        var settings = VideoSettings()
+        if let codec = defaults.string(forKey: "video.codec").flatMap(Codec.init) { settings.codec = codec }
+        if let quality = defaults.string(forKey: "video.quality").flatMap(Quality.init) { settings.quality = quality }
+        if let rate = defaults.object(forKey: "video.framesPerSecond") as? Int, frameRates.contains(rate) { settings.framesPerSecond = rate }
+        if let native = defaults.object(forKey: "video.nativeResolution") as? Bool { settings.nativeResolution = native }
+        return settings
+    }
+
+    func save(to defaults: UserDefaults = .standard) {
+        defaults.set(codec.rawValue, forKey: "video.codec")
+        defaults.set(quality.rawValue, forKey: "video.quality")
+        defaults.set(framesPerSecond, forKey: "video.framesPerSecond")
+        defaults.set(nativeResolution, forKey: "video.nativeResolution")
     }
 }
 

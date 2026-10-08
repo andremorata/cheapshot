@@ -16,10 +16,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = Self.menuBarIcon
+        item.isVisible = SettingsWindow.showsMenuBarIcon
         statusItem = item
         NSApp.mainMenu = makeMainMenu()
 
         setHotKeysEnabled(true)
+    }
+
+    /// Opening the app while it is already running, from Finder, Launchpad or Spotlight. With the
+    /// menu bar icon hidden this is the only way back to the settings.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettings()
+        return false
+    }
+
+    /// Quitting in the middle of a recording would throw the file away. It stops and asks where
+    /// to save instead, and the app stays open. Quitting again after that goes through.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard recorder != nil else { return .terminateNow }
+        stopRecording()
+        return .terminateCancel
     }
 
     /// Registers every hotkey from the saved shortcuts, or drops them all. The menu is rebuilt
@@ -127,7 +143,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc private func showSettings() {
-        SettingsWindow.show { [weak self] in self?.setHotKeysEnabled($0) }
+        SettingsWindow.show(
+            setHotKeysEnabled: { [weak self] in self?.setHotKeysEnabled($0) },
+            menuBarIconChanged: { [weak self] in
+                // A recording keeps its stop button in the bar whatever the option says.
+                guard let self, recorder == nil else { return }
+                statusItem?.isVisible = SettingsWindow.showsMenuBarIcon
+            })
     }
 
     private func captureScreen() {
@@ -230,8 +252,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                     return
                 }
             }
-            // NOTE: fixed defaults (HEVC, 30 fps, 1x, medium) until the settings screen exposes them.
-            var settings = VideoSettings()
+            var settings = VideoSettings.load()
             settings.systemAudio = options.systemAudio
             settings.microphone = options.microphone
             settings.systemGain = Float(options.systemVolume)
@@ -269,6 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func showStopButton() {
         guard let statusItem, let button = statusItem.button else { return }
         statusItem.menu = nil
+        // The stop button shows even when the icon is set to hidden. There has to be a visible way to stop.
+        statusItem.isVisible = true
         statusItem.length = NSStatusItem.variableLength
         // The red is baked into the image. A tint on the button also darkens the title, which then
         // disappears on a dark menu bar. The title is left plain so the system picks its color.
@@ -302,6 +325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             button.action = nil
             statusItem.length = NSStatusItem.squareLength
             statusItem.menu = makeMenu()
+            statusItem.isVisible = SettingsWindow.showsMenuBarIcon
         }
         Task {
             do { try await saveRecording(try await recorder.stop()) } catch { report(error) }
