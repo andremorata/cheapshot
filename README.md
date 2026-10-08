@@ -100,7 +100,7 @@ Each recording appends a summary of its audio tracks to `~/Library/Logs/cheapsho
 
 ## Releasing
 
-A push to `main` that changes the app runs the release workflow. It bumps the patch number, tests, builds, signs, publishes a GitHub release and updates the Homebrew cask. Put `[skip ci]` in the commit message to push without releasing.
+A push to `main` that changes the app starts the release workflow, which waits for an approval in the Actions tab. Once approved, it bumps the patch number, tests, builds, signs, publishes a GitHub release and updates the Homebrew cask. Put `[skip ci]` in the commit message to push without releasing.
 
 For a minor or major version, run the workflow by hand from the Actions tab and type the version. The same form has a rehearsal option that builds and packages without publishing.
 

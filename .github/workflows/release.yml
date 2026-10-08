@@ -30,6 +30,8 @@ concurrency: release
 jobs:
   release:
     runs-on: macos-26
+    # The secrets live in this environment. It needs an approval before the job starts, and only main can use it.
+    environment: release
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
     steps:
