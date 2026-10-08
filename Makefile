@@ -19,7 +19,8 @@ app:
 	plutil -replace CFBundleShortVersionString -string "$(or $(VERSION),0.0.0)" $(APP)/Contents/Info.plist
 	plutil -replace CFBundleVersion -string "$(or $(BUILD_NUMBER),1)" $(APP)/Contents/Info.plist
 	cp Support/AppIcon.icns Support/MenuBarIcon.svg $(APP)/Contents/Resources/
-	codesign --force --sign "$(CODESIGN_IDENTITY)" $(APP)
+# The hardened runtime stops other programs from loading code into cheapshot to borrow its permissions.
+	codesign --force --options runtime --entitlements Support/cheapshot.entitlements --sign "$(CODESIGN_IDENTITY)" $(APP)
 
 run: app
 	open $(APP)
