@@ -236,6 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             settings.microphone = options.microphone
             settings.systemGain = Float(options.systemVolume)
             settings.microphoneGain = Float(options.microphoneVolume)
+            settings.reduceNoise = options.reduceNoise
             do {
                 let recorder = try await Recorder.start(target, settings: settings)
                 recorder.onInterrupted = { [weak self] in self?.stopRecording() }

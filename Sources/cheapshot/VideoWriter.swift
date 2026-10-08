@@ -17,6 +17,8 @@ struct VideoSettings: Equatable, Sendable {
     /// Multipliers applied to each source before encoding. 1 leaves the level as captured.
     var systemGain: Float = 1
     var microphoneGain: Float = 1
+    /// Runs the microphone through voice isolation after the recording stops.
+    var reduceNoise = false
 
     /// The average bitrate to aim for, in bits per second.
     func bitrate(width: Int, height: Int) -> Int {
@@ -142,89 +144,6 @@ final class VideoWriter: @unchecked Sendable {
         writer.endSession(atSourceTime: lastTime)
         writer.finishWriting { [self] in
             completion(writer.status == .completed ? nil : writer.error ?? RecordingError.cannotFinish)
-        }
-    }
-}
-
-/// Rewrites the file at `url` so that its audio tracks become one. The video is copied, not
-/// re-encoded. A file with one audio track or none is left alone.
-///
-/// Many players and most upload sites read only the first audio track, so a recording with the
-/// system sound and the microphone on separate tracks would lose one of them there.
-func mixAudioTracks(of url: URL) async throws {
-    let asset = AVURLAsset(url: url)
-    let audioTracks = try await asset.loadTracks(withMediaType: .audio)
-    guard audioTracks.count > 1, let videoTrack = try await asset.loadTracks(withMediaType: .video).first else { return }
-
-    let reader = try AVAssetReader(asset: asset)
-    // `nil` settings hand over the compressed video samples untouched.
-    let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: nil)
-    let audioOutput = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 48_000,
-        AVNumberOfChannelsKey: 2,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsNonInterleaved: false,
-    ])
-    reader.add(videoOutput)
-    reader.add(audioOutput)
-
-    let mixedURL = url.deletingLastPathComponent().appendingPathComponent("mixed-" + url.lastPathComponent)
-    let writer = try AVAssetWriter(outputURL: mixedURL, fileType: .mp4)
-    let videoInput = AVAssetWriterInput(
-        mediaType: .video, outputSettings: nil, sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
-    let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-        AVFormatIDKey: kAudioFormatMPEG4AAC,
-        AVSampleRateKey: 48_000,
-        AVNumberOfChannelsKey: 2,
-        AVEncoderBitRateKey: 160_000,
-    ])
-    writer.add(videoInput)
-    writer.add(audioInput)
-
-    guard reader.startReading(), writer.startWriting() else {
-        throw reader.error ?? writer.error ?? RecordingError.cannotFinish
-    }
-    writer.startSession(atSourceTime: .zero)
-
-    // Each pump moves one track on its own queue. AVFoundation objects are not Sendable, but
-    // each pair is only ever touched from its pump.
-    let pumps: [Pump] = [Pump(videoOutput, videoInput), Pump(audioOutput, audioInput)]
-    await withTaskGroup(of: Void.self) { group in
-        for pump in pumps { group.addTask { await pump.run() } }
-    }
-    await writer.finishWriting()
-    guard reader.status == .completed, writer.status == .completed else {
-        try? FileManager.default.removeItem(at: mixedURL)
-        throw reader.error ?? writer.error ?? RecordingError.cannotFinish
-    }
-    _ = try FileManager.default.replaceItemAt(url, withItemAt: mixedURL)
-}
-
-/// Copies every sample from a reader output to a writer input.
-private final class Pump: @unchecked Sendable {
-    private let output: AVAssetReaderOutput
-    private let input: AVAssetWriterInput
-    private let queue = DispatchQueue(label: "cheapshot.mixdown")
-
-    init(_ output: AVAssetReaderOutput, _ input: AVAssetWriterInput) {
-        self.output = output
-        self.input = input
-    }
-
-    func run() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-            input.requestMediaDataWhenReady(on: queue) { [self] in
-                while input.isReadyForMoreMediaData {
-                    guard let sample = output.copyNextSampleBuffer(), input.append(sample) else {
-                        input.markAsFinished()
-                        done.resume()
-                        return
-                    }
-                }
-            }
         }
     }
 }

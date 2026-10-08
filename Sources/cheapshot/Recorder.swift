@@ -10,6 +10,7 @@ final class Recorder {
     private let stream: SCStream
     private let sink: Sink
     private let url: URL
+    private let settings: VideoSettings
 
     static func start(_ target: Capture.Target, settings: VideoSettings) async throws -> Recorder {
         let source = try await Capture.source(for: target)
@@ -40,7 +41,7 @@ final class Recorder {
         try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: sink.queue)
         if settings.systemAudio { try stream.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.queue) }
         if settings.microphone { try stream.addStreamOutput(sink, type: .microphone, sampleHandlerQueue: sink.queue) }
-        let recorder = Recorder(stream: stream, sink: sink, url: url)
+        let recorder = Recorder(stream: stream, sink: sink, url: url, settings: settings)
         sink.onStop = { [weak recorder] in
             Task { @MainActor in recorder?.onInterrupted?() }
         }
@@ -48,10 +49,11 @@ final class Recorder {
         return recorder
     }
 
-    private init(stream: SCStream, sink: Sink, url: URL) {
+    private init(stream: SCStream, sink: Sink, url: URL, settings: VideoSettings) {
         self.stream = stream
         self.sink = sink
         self.url = url
+        self.settings = settings
     }
 
     /// Stops and returns the temporary file. The caller moves or deletes it.
@@ -67,7 +69,9 @@ final class Recorder {
                 }
             }
             RecordingLog.write(sink.writer.summary)
-            try await mixAudioTracks(of: url)
+            let cleaned = settings.microphone && settings.reduceNoise ? try await isolateVoice(inMicrophoneTrackOf: url) : nil
+            defer { if let cleaned { try? FileManager.default.removeItem(at: cleaned.file) } }
+            try await mixAudioTracks(of: url, replacingMicrophoneWith: cleaned)
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw error

@@ -17,6 +17,8 @@ struct RecordOptions: Equatable, Sendable {
     /// 1 keeps the level as captured. Above 1 boosts it, which helps a quiet microphone.
     var systemVolume = 1.0
     var microphoneVolume = 1.0
+    /// Runs the microphone through voice isolation, which drops room noise and breathing.
+    var reduceNoise = true
     var countdown = 3
 
     static func load(from defaults: UserDefaults = .standard) -> RecordOptions {
@@ -29,6 +31,7 @@ struct RecordOptions: Equatable, Sendable {
         }
         if let saved = volume("record.systemVolume") { options.systemVolume = saved }
         if let saved = volume("record.microphoneVolume") { options.microphoneVolume = saved }
+        if let on = defaults.object(forKey: "record.reduceNoise") as? Bool { options.reduceNoise = on }
         if let seconds = defaults.object(forKey: "record.countdown") as? Int, countdownChoices.contains(seconds) {
             options.countdown = seconds
         }
@@ -41,6 +44,7 @@ struct RecordOptions: Equatable, Sendable {
         defaults.set(microphone, forKey: "record.microphone")
         defaults.set(systemVolume, forKey: "record.systemVolume")
         defaults.set(microphoneVolume, forKey: "record.microphoneVolume")
+        defaults.set(reduceNoise, forKey: "record.reduceNoise")
         defaults.set(countdown, forKey: "record.countdown")
     }
 }
@@ -64,6 +68,7 @@ final class RecordPanel: NSObject, NSWindowDelegate {
     private let microphoneVolume = NSSlider()
     private let systemPercent = NSTextField(labelWithString: "")
     private let microphonePercent = NSTextField(labelWithString: "")
+    private let reduceNoise = NSButton(checkboxWithTitle: "Reduce microphone noise", target: nil, action: nil)
     private let countdown: NSSegmentedControl
     /// The app that was in front when the panel opened. It gets the focus back, so its windows
     /// do not look inactive in the recording.
@@ -108,6 +113,8 @@ final class RecordPanel: NSObject, NSWindowDelegate {
                 control.action = #selector(audioChanged)
             }
         }
+        reduceNoise.state = options.reduceNoise ? .on : .off
+        reduceNoise.toolTip = "Keeps the voice and drops room noise, hiss and breathing. Applied when the recording stops"
         audioChanged()
         countdown.segmentDistribution = .fillEqually
         countdown.selectedSegment = RecordOptions.countdownChoices.firstIndex(of: options.countdown) ?? 0
@@ -122,7 +129,9 @@ final class RecordPanel: NSObject, NSWindowDelegate {
         let audio = NSGridView(views: [
             [systemAudio, systemVolume, systemPercent],
             [microphone, microphoneVolume, microphonePercent],
+            [reduceNoise],
         ])
+        audio.mergeCells(inHorizontalRange: NSRange(location: 0, length: 3), verticalRange: NSRange(location: 2, length: 1))
         audio.rowSpacing = 10
         audio.columnSpacing = 12
         audio.rowAlignment = .firstBaseline
@@ -171,6 +180,7 @@ final class RecordPanel: NSObject, NSWindowDelegate {
             microphone: microphone.state == .on,
             systemVolume: systemVolume.doubleValue,
             microphoneVolume: microphoneVolume.doubleValue,
+            reduceNoise: reduceNoise.state == .on,
             countdown: RecordOptions.countdownChoices[max(countdown.selectedSegment, 0)])
     }
 
@@ -180,6 +190,7 @@ final class RecordPanel: NSObject, NSWindowDelegate {
             slider.isEnabled = box.state == .on
             percent.stringValue = "\(Int((slider.doubleValue * 100).rounded()))%"
         }
+        reduceNoise.isEnabled = microphone.state == .on
     }
 
     @objc private func start() {

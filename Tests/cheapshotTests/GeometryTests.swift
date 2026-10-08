@@ -162,9 +162,10 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
 
     // Nothing saved yet: region, both audio sources, a 3 second countdown.
     #expect(RecordOptions.load(from: defaults) == RecordOptions(
-        mode: .region, systemAudio: true, microphone: true, systemVolume: 1, microphoneVolume: 1, countdown: 3))
+        mode: .region, systemAudio: true, microphone: true, systemVolume: 1, microphoneVolume: 1, reduceNoise: true, countdown: 3))
 
-    let chosen = RecordOptions(mode: .window, systemAudio: false, microphone: true, systemVolume: 0.5, microphoneVolume: 2.5, countdown: 10)
+    let chosen = RecordOptions(
+        mode: .window, systemAudio: false, microphone: true, systemVolume: 0.5, microphoneVolume: 2.5, reduceNoise: false, countdown: 10)
     chosen.save(to: defaults)
     #expect(RecordOptions.load(from: defaults) == chosen)
 
