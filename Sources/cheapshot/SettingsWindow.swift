@@ -14,17 +14,22 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         current?.window.makeKeyAndOrderFront(nil)
     }
 
-    private let window: NSWindow
+    let window: NSWindow
     private let setHotKeysEnabled: @MainActor (Bool) -> Void
     private var recorders: [HotKeyAction: ShortcutRecorder] = [:]
     private let message = NSTextField(wrappingLabelWithString: "")
 
-    private init(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void) {
+    init(setHotKeysEnabled: @escaping @MainActor (Bool) -> Void) {
         self.setHotKeysEnabled = setHotKeysEnabled
         window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         super.init()
 
-        var rows: [[NSView]] = HotKeyAction.allCases.map { action in
+        let hint = NSTextField(wrappingLabelWithString: "Click a shortcut, then press the new keys. Esc keeps the current one.")
+        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.textColor = .secondaryLabelColor
+        hint.preferredMaxLayoutWidth = 300
+
+        var rows: [[NSView]] = [[hint]] + HotKeyAction.allCases.map { action in
             let recorder = ShortcutRecorder(shortcut: .current(for: action))
             recorder.onRecording = { [weak self] recording in self?.recordingChanged(recording, for: action) }
             recorder.validate = { [weak self] in self?.problem(with: $0, for: action) }
@@ -34,6 +39,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             return [NSTextField(labelWithString: action.title), recorder]
         }
         rows.append([NSGridCell.emptyContentView, NSButton(title: "Restore Defaults", target: self, action: #selector(restoreDefaults))])
+        message.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         message.textColor = .systemRed
         message.preferredMaxLayoutWidth = 300
         rows.append([message])
@@ -43,9 +49,14 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         grid.rowAlignment = .firstBaseline
         grid.rowSpacing = 10
         grid.columnSpacing = 12
-        // The message spans both columns and keeps its line even when empty, so the window does not jump.
-        grid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2), verticalRange: NSRange(location: rows.count - 1, length: 1))
-        grid.row(at: rows.count - 1).height = 34
+        // The hint and the message span both columns. The message keeps room for two lines even
+        // when empty, so the window does not jump.
+        for row in [0, rows.count - 1] {
+            grid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2), verticalRange: NSRange(location: row, length: 1))
+            grid.cell(atColumnIndex: 0, rowIndex: row).xPlacement = .leading
+        }
+        grid.row(at: 0).bottomPadding = 6
+        grid.row(at: rows.count - 1).height = 28
         grid.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
@@ -54,7 +65,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             grid.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
             grid.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
             grid.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
-            grid.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -12),
+            grid.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
         ])
         window.title = "cheapshot Settings"
         window.isReleasedWhenClosed = false

@@ -4,7 +4,7 @@ APP := build/cheapshot.app
 -include local.mk
 CODESIGN_IDENTITY ?= -
 
-.PHONY: app run test icon clean
+.PHONY: app run test snapshots icon clean
 
 app:
 	swift build -c release
@@ -24,6 +24,10 @@ TESTING_PLUGINS := /Library/Developer/CommandLineTools/usr/lib/swift/host/plugin
 
 test:
 	swift test -Xswiftc -plugin-path -Xswiftc $(TESTING_PLUGINS)
+
+# Renders the editor and settings windows to build/snapshots without showing them on screen.
+snapshots:
+	CHEAPSHOT_SNAPSHOTS=$(CURDIR)/build/snapshots swift test -Xswiftc -plugin-path -Xswiftc $(TESTING_PLUGINS) --filter Snapshot
 
 # Rebuilds Support/AppIcon.icns from Support/AppIcon.svg. Run it after editing the SVG.
 icon:

@@ -10,7 +10,7 @@ struct Document: Equatable, Sendable {
 
 /// Draws the capture with its annotations, and turns mouse and key input into edits.
 final class CanvasView: NSView {
-    static let margin: CGFloat = 16
+    static let margin: CGFloat = 24
 
     var tool: Tool = .arrow
     var color: RGBA = .defaultInk {
@@ -23,13 +23,13 @@ final class CanvasView: NSView {
     var onToolShortcut: ((Tool) -> Void)?
 
     private let shot: Shot
-    private var document = Document() {
+    var document = Document() {
         didSet {
             if let selected, selected >= document.annotations.count { self.selected = nil }
             needsDisplay = true
         }
     }
-    private var selected: Int? { didSet { needsDisplay = true } }
+    var selected: Int? { didSet { needsDisplay = true } }
 
     private enum Drag {
         case drawing
@@ -80,7 +80,11 @@ final class CanvasView: NSView {
         let rect = imageRect
         guard let context = NSGraphicsContext.current?.cgContext, rect.width > 0 else { return }
         context.interpolationQuality = .high
+        // A soft shadow lifts the capture off the background, which is often the same light gray.
+        context.saveGState()
+        context.setShadow(offset: CGSize(width: 0, height: -2), blur: 14, color: CGColor(gray: 0, alpha: 0.28))
         context.draw(shot.image, in: rect)
+        context.restoreGState()
 
         context.saveGState()
         context.clip(to: rect)
