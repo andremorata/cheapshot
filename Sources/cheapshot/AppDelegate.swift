@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .screen: captureScreen()
         case .text: captureText()
         case .annotate: annotateLastCapture()
-        case .record: recorder == nil ? record(.region) : stopRecording()
+        case .record: recorder == nil ? showRecordPanel() : stopRecording()
         }
     }
 
@@ -80,8 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(withTitle: "Save Last Capture…", action: #selector(saveLastCapture), keyEquivalent: "s").target = self
         menu.addItem(.separator())
         add(.record)
-        menu.addItem(withTitle: "Record Window", action: #selector(recordWindow), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Record Screen", action: #selector(recordScreen), keyEquivalent: "").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
@@ -184,32 +182,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Recording
 
-    private enum RecordMode { case region, window, screen }
+    /// The record hotkey opens a quick panel first: what to record, which audio, and the countdown.
+    private func showRecordPanel() {
+        guard !isStartingRecording else { return }
+        RecordPanel.show { [weak self] in self?.record($0) }
+    }
 
-    @objc private func recordWindow() { record(.window) }
-    @objc private func recordScreen() { record(.screen) }
+    /// Shows the system prompt the first time. After a refusal it explains where to turn the permission on.
+    private func hasMicrophoneAccess() async -> Bool {
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { return true }
+        if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
+            return await AVCaptureDevice.requestAccess(for: .audio)
+        }
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "cheapshot needs Microphone permission"
+        alert.informativeText = "Turn it on in System Settings, under Privacy & Security, then try again."
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+            NSWorkspace.shared.open(url)
+        }
+        return false
+    }
 
-    private func record(_ mode: RecordMode) {
+    private func record(_ options: RecordOptions) {
         guard recorder == nil, !isStartingRecording, hasScreenAccess() else { return }
         isStartingRecording = true
         Task { [self] in
             defer { isStartingRecording = false }
-            let target: Capture.Target? = switch mode {
+            // Asked before anything else, so the system prompt never lands in the middle of the countdown.
+            if options.microphone {
+                guard await hasMicrophoneAccess() else { return }
+            }
+            let target: Capture.Target? = switch options.mode {
             case .region: await SelectionOverlay.pick(.region)
             case .window: await SelectionOverlay.pick(.window)
             case .screen: NSScreen.underMouse?.displayID.map { .display($0) }
             }
             guard let target else { return }
+            // Up from here until the recording stops, so the limits stay visible. Shown during the countdown too.
+            if let region = screenRect(of: target) { RecordingFrame.show(around: region) }
+            if options.countdown > 0 {
+                guard await Countdown.run(seconds: options.countdown, at: center(of: target)) else {
+                    RecordingFrame.hide()
+                    return
+                }
+            }
+            // NOTE: fixed defaults (HEVC, 30 fps, 1x, medium) until the settings screen exposes them.
+            var settings = VideoSettings()
+            settings.systemAudio = options.systemAudio
+            settings.microphone = options.microphone
+            settings.systemGain = Float(options.systemVolume)
+            settings.microphoneGain = Float(options.microphoneVolume)
             do {
-                // NOTE: fixed defaults (HEVC, 30 fps, 1x, medium) until the settings screen exposes them.
-                let recorder = try await Recorder.start(target, settings: VideoSettings())
+                let recorder = try await Recorder.start(target, settings: settings)
                 recorder.onInterrupted = { [weak self] in self?.stopRecording() }
                 self.recorder = recorder
                 showStopButton()
             } catch {
+                RecordingFrame.hide()
                 report(error)
             }
         }
+    }
+
+    /// The recorded region in AppKit screen coordinates. Nil for a window or a whole screen,
+    /// which need no outline.
+    private func screenRect(of target: Capture.Target) -> CGRect? {
+        guard case .display(let id, let region?) = target,
+              let screen = NSScreen.screens.first(where: { $0.displayID == id })
+        else { return nil }
+        // The region counts down from the top of its screen. AppKit counts up from the bottom.
+        return CGRect(x: screen.frame.minX + region.minX, y: screen.frame.maxY - region.maxY, width: region.width, height: region.height)
+    }
+
+    /// The middle of what will be recorded, in AppKit screen coordinates. The countdown sits there.
+    private func center(of target: Capture.Target) -> CGPoint {
+        let rect = screenRect(of: target) ?? NSScreen.underMouse?.frame ?? .zero
+        return CGPoint(x: rect.midX, y: rect.midY)
     }
 
     /// Turns the status item into a stop button that counts the seconds.
@@ -241,6 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func stopRecording() {
         guard let recorder else { return }
         self.recorder = nil
+        RecordingFrame.hide()
         if let statusItem, let button = statusItem.button {
             button.title = ""
             button.image = Self.menuBarIcon

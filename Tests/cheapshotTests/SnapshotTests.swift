@@ -45,6 +45,12 @@ func snapshotWindows() throws {
         text.window.appearance = NSAppearance(named: appearance)
         try write(text.window, to: folder.appendingPathComponent("text-\(name).png"))
 
+        var recordOptions = RecordOptions()
+        recordOptions.microphoneVolume = 2.5
+        let record = RecordPanel(options: recordOptions, onStart: { _ in })
+        record.window.appearance = NSAppearance(named: appearance)
+        try write(record.window, to: folder.appendingPathComponent("record-\(name).png"))
+
         let settings = SettingsWindow(setHotKeysEnabled: { _ in })
         settings.window.appearance = NSAppearance(named: appearance)
         try write(settings.window, to: folder.appendingPathComponent("settings-\(name).png"))

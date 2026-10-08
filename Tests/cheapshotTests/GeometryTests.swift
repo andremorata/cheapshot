@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 @testable import cheapshot
 
@@ -152,4 +153,25 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
     #expect(changed.bitrate(width: 1920, height: 1080) > medium)
     // A tiny region still gets enough bits to be watchable.
     #expect(base.bitrate(width: 64, height: 64) == 200_000)
+}
+
+@Test func recordOptionsRememberTheLastChoice() throws {
+    let name = "cheapshot-test-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+
+    // Nothing saved yet: region, both audio sources, a 3 second countdown.
+    #expect(RecordOptions.load(from: defaults) == RecordOptions(
+        mode: .region, systemAudio: true, microphone: true, systemVolume: 1, microphoneVolume: 1, countdown: 3))
+
+    let chosen = RecordOptions(mode: .window, systemAudio: false, microphone: true, systemVolume: 0.5, microphoneVolume: 2.5, countdown: 10)
+    chosen.save(to: defaults)
+    #expect(RecordOptions.load(from: defaults) == chosen)
+
+    // A countdown that is not one of the choices falls back to the default.
+    defaults.set(7, forKey: "record.countdown")
+    #expect(RecordOptions.load(from: defaults).countdown == 3)
+    // A volume outside the slider's range is pulled back into it.
+    defaults.set(9.0, forKey: "record.microphoneVolume")
+    #expect(RecordOptions.load(from: defaults).microphoneVolume == 4)
 }

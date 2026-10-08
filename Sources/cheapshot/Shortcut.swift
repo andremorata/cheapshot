@@ -12,7 +12,7 @@ enum HotKeyAction: String, CaseIterable, Sendable {
         case .screen: "Capture Screen"
         case .text: "Capture Text"
         case .annotate: "Annotate Last Capture"
-        case .record: "Record Region"
+        case .record: "Record…"
         }
     }
 

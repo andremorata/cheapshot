@@ -26,12 +26,20 @@ final class Recorder {
         config.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         config.showsCursor = true
         config.queueDepth = 6
+        config.capturesAudio = settings.systemAudio
+        // Keeps the shutter and other cheapshot sounds out of the recording.
+        config.excludesCurrentProcessAudio = true
+        config.sampleRate = 48_000
+        config.channelCount = 2
+        config.captureMicrophone = settings.microphone
 
         // Recorded to a temporary file first. The user picks the real destination when it stops.
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cheapshot-\(UUID().uuidString).mp4")
         let sink = Sink(writer: try VideoWriter(url: url, width: width, height: height, settings: settings))
         let stream = SCStream(filter: source.filter, configuration: config, delegate: sink)
         try stream.addStreamOutput(sink, type: .screen, sampleHandlerQueue: sink.queue)
+        if settings.systemAudio { try stream.addStreamOutput(sink, type: .audio, sampleHandlerQueue: sink.queue) }
+        if settings.microphone { try stream.addStreamOutput(sink, type: .microphone, sampleHandlerQueue: sink.queue) }
         let recorder = Recorder(stream: stream, sink: sink, url: url)
         sink.onStop = { [weak recorder] in
             Task { @MainActor in recorder?.onInterrupted?() }
@@ -58,6 +66,8 @@ final class Recorder {
                     }
                 }
             }
+            RecordingLog.write(sink.writer.summary)
+            try await mixAudioTracks(of: url)
         } catch {
             try? FileManager.default.removeItem(at: url)
             throw error
@@ -77,8 +87,14 @@ private final class Sink: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked
     }
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen, sampleBuffer.isValid,
-              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
+        guard sampleBuffer.isValid else { return }
+        switch type {
+        case .audio: return writer.append(sampleBuffer, from: .system)
+        case .microphone: return writer.append(sampleBuffer, from: .microphone)
+        case .screen: break
+        @unknown default: return
+        }
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let status = (attachments.first?[.status] as? Int).flatMap(SCFrameStatus.init)
         else { return }
         switch status {

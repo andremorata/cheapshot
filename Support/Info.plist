@@ -20,6 +20,8 @@
 	<string>15.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>cheapshot records the microphone only while Record Microphone is turned on.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>
