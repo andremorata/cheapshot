@@ -33,10 +33,13 @@ jobs:
     env:
       DRY_RUN: ${{ inputs.dry_run || false }}
     steps:
-      - uses: actions/checkout@v7
+      # Actions are pinned to a commit, because a tag can be moved to other code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Tags are needed to find the last version.
           fetch-depth: 0
+          # Nothing here pushes to this repository with git, so the token stays out of .git/config.
+          persist-credentials: false
 
       - name: Pick the version
         id: version
@@ -65,6 +68,10 @@ jobs:
           sw_vers
           swift --version
 
+      # Before the signing identity is imported, so test code never runs with it in reach.
+      - name: Test
+        run: make test
+
       # The same self-signed identity as every earlier release. macOS ties the Screen Recording
       # permission to it, so a different signature would make every user grant it again.
       - name: Import the signing identity
@@ -83,9 +90,6 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 
-      - name: Test
-        run: make test
-
       - name: Build
         run: make app VERSION="${{ steps.version.outputs.version }}" CODESIGN_IDENTITY="cheapshot dev"
 
@@ -96,12 +100,13 @@ jobs:
           zip="build/cheapshot-$version.zip"
           # A build signed any other way must never ship. It would break the permission for everyone.
           codesign -d -r- build/cheapshot.app 2>&1 | grep -q 'certificate leaf' || { echo "::error::not signed with the release identity"; exit 1; }
+          codesign -dv build/cheapshot.app 2>&1 | grep -q 'flags=.*runtime' || { echo "::error::signed without the hardened runtime"; exit 1; }
           codesign --verify --deep --strict build/cheapshot.app
           ditto -c -k --sequesterRsrc --keepParent build/cheapshot.app "$zip"
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
           echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cheapshot-${{ steps.version.outputs.version }}
           path: ${{ steps.package.outputs.zip }}
@@ -110,9 +115,10 @@ jobs:
         if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # A tag name can hold quotes and semicolons, so it arrives as data, never as script text.
+          previous: ${{ steps.version.outputs.previous }}
         run: |
           version="${{ steps.version.outputs.version }}"
-          previous="${{ steps.version.outputs.previous }}"
           {
             git log --format='- %s' ${previous:+"$previous"..}HEAD
             echo
