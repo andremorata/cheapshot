@@ -5,6 +5,8 @@ import AppKit
 final class Editor: NSObject, NSWindowDelegate {
     private static var current: Editor?
     private static let barHeight: CGFloat = 40
+    /// Wide enough for the tools on the left and the two buttons on the right.
+    private static let minWidth: CGFloat = 560
 
     static func open(_ shot: Shot) {
         if let current {
@@ -25,7 +27,7 @@ final class Editor: NSObject, NSWindowDelegate {
         let limit = CGRect(x: 0, y: 0, width: visible.width * 0.8, height: visible.height * 0.8 - Self.barHeight)
         let fitted = aspectFit(natural, in: limit, maxScale: 1).size
         let canvasSize = CGSize(
-            width: max(fitted.width + CanvasView.margin * 2, 480),
+            width: max(fitted.width + CanvasView.margin * 2, Self.minWidth),
             height: max(fitted.height + CanvasView.margin * 2, 320))
         let contentSize = CGSize(width: canvasSize.width, height: canvasSize.height + Self.barHeight)
 
@@ -65,6 +67,14 @@ final class Editor: NSObject, NSWindowDelegate {
         bar.spacing = 14
         bar.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
         bar.setViews([tools, well, slider], in: .leading)
+
+        // Standard dialog keys: Return triggers the default button, Esc triggers Cancel.
+        let cancel = NSButton(title: "Cancel", target: self, action: #selector(close))
+        cancel.keyEquivalent = "\u{1b}"
+        let copy = NSButton(title: "Copy", target: self, action: #selector(copyAndClose))
+        copy.keyEquivalent = "\r"
+        copy.toolTip = "Copy the annotated capture and close"
+        bar.setViews([cancel, copy], in: .trailing)
         canvas.frame = CGRect(origin: .zero, size: canvasSize)
         canvas.autoresizingMask = [.width, .height]
         let content = NSView(frame: CGRect(origin: .zero, size: contentSize))
@@ -75,7 +85,7 @@ final class Editor: NSObject, NSWindowDelegate {
 
         window.title = "cheapshot"
         window.isReleasedWhenClosed = false
-        window.contentMinSize = CGSize(width: 480, height: 320 + Self.barHeight)
+        window.contentMinSize = CGSize(width: Self.minWidth, height: 320 + Self.barHeight)
         window.contentView = content
         window.delegate = self
         window.center()
@@ -91,6 +101,13 @@ final class Editor: NSObject, NSWindowDelegate {
         canvas.tool = Annotation.Kind(rawValue: tools.selectedSegment) ?? .arrow
         window.makeFirstResponder(canvas)
     }
+
+    @objc private func copyAndClose() {
+        Output.copy(canvas.rendered())
+        close()
+    }
+
+    @objc private func close() { window.performClose(nil) }
 
     @objc private func colorPicked(_ sender: NSColorWell) { canvas.color = RGBA(sender.color) }
 

@@ -225,7 +225,4 @@ final class CanvasView: NSView {
     @objc func saveDocument(_ sender: Any?) {
         do { try Output.save(rendered()) } catch { NSApp.presentError(error) }
     }
-
-    // Esc.
-    override func cancelOperation(_ sender: Any?) { window?.performClose(nil) }
 }
