@@ -27,3 +27,17 @@ import Testing
     let collapsed = CGRect(x: 0, y: 0, width: 10, height: 10).insetBy(dx: 16, dy: 16)
     #expect(aspectFit(CGSize(width: 20, height: 10), in: collapsed) == .zero)
 }
+
+@Test func hitsTheStrokeAndNotTheInside() {
+    func shape(_ kind: Annotation.Kind) -> Annotation {
+        Annotation(kind: kind, start: .zero, end: CGPoint(x: 100, y: 60), color: .defaultInk, lineWidth: 4)
+    }
+    // A line is hit near its path and missed away from it.
+    #expect(shape(.line).hitTest(CGPoint(x: 50, y: 32), tolerance: 4))
+    #expect(!shape(.line).hitTest(CGPoint(x: 50, y: 5), tolerance: 4))
+    // A rectangle and an ellipse are hit on the border, not in the middle.
+    #expect(shape(.rectangle).hitTest(CGPoint(x: 50, y: 1), tolerance: 4))
+    #expect(!shape(.rectangle).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+    #expect(shape(.ellipse).hitTest(CGPoint(x: 0, y: 30), tolerance: 4))
+    #expect(!shape(.ellipse).hitTest(CGPoint(x: 50, y: 30), tolerance: 4))
+}

@@ -65,7 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ("Save…", #selector(CanvasView.saveDocument), "s"),
             ("Close", #selector(NSWindow.performClose), "w"),
         ])
-        submenu("Edit", [("Copy", #selector(CanvasView.copy(_:)), "c")])
+        // An uppercase key equivalent means Shift, so "Z" is Shift-Command-Z.
+        submenu("Edit", [
+            ("Undo", Selector(("undo:")), "z"),
+            ("Redo", Selector(("redo:")), "Z"),
+            ("Copy", #selector(CanvasView.copy(_:)), "c"),
+        ])
         return main
     }
 

@@ -4,6 +4,7 @@ import AppKit
 @MainActor
 final class Editor: NSObject, NSWindowDelegate {
     private static var current: Editor?
+    private static let barHeight: CGFloat = 40
 
     static func open(_ shot: Shot) {
         if let current {
@@ -15,24 +16,67 @@ final class Editor: NSObject, NSWindowDelegate {
     }
 
     private let window: NSWindow
+    private let canvas: CanvasView
+    private let tools: NSSegmentedControl
 
     private init(shot: Shot) {
         let visible = NSScreen.underMouse?.visibleFrame.size ?? CGSize(width: 1280, height: 800)
         let natural = CGSize(width: CGFloat(shot.image.width) / shot.scale, height: CGFloat(shot.image.height) / shot.scale)
-        let limit = CGRect(x: 0, y: 0, width: visible.width * 0.8, height: visible.height * 0.8)
+        let limit = CGRect(x: 0, y: 0, width: visible.width * 0.8, height: visible.height * 0.8 - Self.barHeight)
         let fitted = aspectFit(natural, in: limit, maxScale: 1).size
-        let content = CGSize(
+        let canvasSize = CGSize(
             width: max(fitted.width + CanvasView.margin * 2, 480),
             height: max(fitted.height + CanvasView.margin * 2, 320))
+        let contentSize = CGSize(width: canvasSize.width, height: canvasSize.height + Self.barHeight)
 
         window = NSWindow(
-            contentRect: CGRect(origin: .zero, size: content),
+            contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        canvas = CanvasView(shot: shot)
+        let symbols = [("arrow.up.right", "Arrow (A)"), ("line.diagonal", "Line (L)"), ("rectangle", "Rectangle (R)"), ("circle", "Ellipse (O)")]
+        tools = NSSegmentedControl(
+            images: symbols.map { NSImage(systemSymbolName: $0.0, accessibilityDescription: $0.1) ?? NSImage() },
+            trackingMode: .selectOne, target: nil, action: #selector(toolPicked))
+        super.init()
+
+        for (index, symbol) in symbols.enumerated() { tools.setToolTip(symbol.1, forSegment: index) }
+        tools.selectedSegment = canvas.tool.rawValue
+        tools.target = self
+
+        let well = NSColorWell(style: .minimal)
+        well.color = canvas.color.nsColor
+        well.target = self
+        well.action = #selector(colorPicked)
+        well.toolTip = "Color"
+        well.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        well.heightAnchor.constraint(equalToConstant: 24).isActive = true
+
+        let slider = NSSlider(value: canvas.lineWidth, minValue: 2, maxValue: 16, target: self, action: #selector(widthPicked))
+        // Applies on release, so one drag is one undo step.
+        slider.isContinuous = false
+        slider.controlSize = .small
+        slider.toolTip = "Thickness"
+        slider.widthAnchor.constraint(equalToConstant: 110).isActive = true
+
+        // Plain frames with autoresizing: the bar keeps its height at the top, the canvas takes the rest.
+        let bar = NSStackView(frame: CGRect(x: 0, y: canvasSize.height, width: contentSize.width, height: Self.barHeight))
+        bar.autoresizingMask = [.width, .minYMargin]
+        bar.orientation = .horizontal
+        bar.spacing = 14
+        bar.edgeInsets = NSEdgeInsets(top: 0, left: 14, bottom: 0, right: 14)
+        bar.setViews([tools, well, slider], in: .leading)
+        canvas.frame = CGRect(origin: .zero, size: canvasSize)
+        canvas.autoresizingMask = [.width, .height]
+        let content = NSView(frame: CGRect(origin: .zero, size: contentSize))
+        content.addSubview(canvas)
+        content.addSubview(bar)
+
+        canvas.onToolShortcut = { [weak self] kind in self?.tools.selectedSegment = kind.rawValue }
+
         window.title = "cheapshot"
         window.isReleasedWhenClosed = false
-        let canvas = CanvasView(shot: shot)
-        window.contentView = canvas
-        super.init()
+        window.contentMinSize = CGSize(width: 480, height: 320 + Self.barHeight)
+        window.contentView = content
         window.delegate = self
         window.center()
 
@@ -43,48 +87,18 @@ final class Editor: NSObject, NSWindowDelegate {
         window.makeFirstResponder(canvas)
     }
 
+    @objc private func toolPicked() {
+        canvas.tool = Annotation.Kind(rawValue: tools.selectedSegment) ?? .arrow
+        window.makeFirstResponder(canvas)
+    }
+
+    @objc private func colorPicked(_ sender: NSColorWell) { canvas.color = RGBA(sender.color) }
+
+    @objc private func widthPicked(_ sender: NSSlider) { canvas.lineWidth = sender.doubleValue }
+
     func windowWillClose(_ notification: Notification) {
+        if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
         Editor.current = nil
         NSApp.setActivationPolicy(.accessory)
     }
-}
-
-/// Draws the capture. Annotations will be drawn on top of it here.
-final class CanvasView: NSView {
-    static let margin: CGFloat = 16
-
-    private let shot: Shot
-
-    init(shot: Shot) {
-        self.shot = shot
-        super.init(frame: .zero)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    override var acceptsFirstResponder: Bool { true }
-
-    /// Where the image sits in the view. It never scales above its on-screen size.
-    private var imageRect: CGRect {
-        let natural = CGSize(width: CGFloat(shot.image.width) / shot.scale, height: CGFloat(shot.image.height) / shot.scale)
-        return aspectFit(natural, in: bounds.insetBy(dx: Self.margin, dy: Self.margin), maxScale: 1)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.underPageBackgroundColor.setFill()
-        bounds.fill()
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        context.interpolationQuality = .high
-        context.draw(shot.image, in: imageRect)
-    }
-
-    @objc func copy(_ sender: Any?) { Output.copy(shot) }
-
-    @objc func saveDocument(_ sender: Any?) {
-        do { try Output.save(shot) } catch { NSApp.presentError(error) }
-    }
-
-    // Esc.
-    override func cancelOperation(_ sender: Any?) { window?.performClose(nil) }
 }
