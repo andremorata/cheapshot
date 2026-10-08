@@ -219,3 +219,18 @@ private func redAfter(_ kind: Annotation.Kind, x: Int, lineWidth: CGFloat = 8) t
     #expect(CaptureAction.current(in: defaults) == .folder)
     #expect(CaptureAction.folder(in: defaults).path == "/tmp/shots")
 }
+
+@Test func labelAndLoupeMoveAwayFromScreenEdges() {
+    let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    let label = CGSize(width: 80, height: 20)
+    // In the open: label up-left, loupe down-left.
+    let open = pointerCompanions(at: CGPoint(x: 500, y: 400), label: label, loupe: 128, in: screen)
+    #expect(open.label.maxX < 500 && open.label.maxY < 400)
+    #expect(open.loupe.maxX < 500 && open.loupe.minY > 400)
+    // Every corner keeps both on screen and apart.
+    for corner in [CGPoint(x: 2, y: 2), CGPoint(x: 998, y: 2), CGPoint(x: 2, y: 798), CGPoint(x: 998, y: 798)] {
+        let place = pointerCompanions(at: corner, label: label, loupe: 128, in: screen)
+        #expect(screen.contains(place.label) && screen.contains(place.loupe))
+        #expect(!place.label.intersects(place.loupe))
+    }
+}

@@ -13,6 +13,20 @@ func snapshotWindows() throws {
     let folder = URL(fileURLWithPath: try #require(snapshotFolder))
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
+    // The region pick over a still, mid-drag: guides, size label and loupe.
+    let still = try sampleShot().image
+    let overlay = OverlayView(still: still, screen: try #require(NSScreen.screens.first))
+    let stage = NSImageView(image: NSImage(cgImage: still, size: CGSize(width: 600, height: 400)))
+    stage.frame = CGRect(x: 0, y: 0, width: 600, height: 400)
+    overlay.frame = stage.bounds
+    stage.addSubview(overlay)
+    // The drag ends on the corner of a text line, so the loupe has an edge to show.
+    overlay.selection = CGRect(x: 120, y: 60, width: 230, height: 162)
+    overlay.pointer = CGPoint(x: 350, y: 222)
+    let picture = try #require(stage.bitmapImageRepForCachingDisplay(in: stage.bounds))
+    stage.cacheDisplay(in: stage.bounds, to: picture)
+    try #require(picture.representation(using: .png, properties: [:])).write(to: folder.appendingPathComponent("selection.png"))
+
     for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
         let editor = Editor(shot: try sampleShot())
         editor.window.appearance = NSAppearance(named: appearance)

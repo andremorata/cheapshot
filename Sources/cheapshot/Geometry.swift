@@ -27,6 +27,26 @@ func pixelRect(forCrop crop: CGRect, imageHeight: CGFloat, scale: CGFloat) -> CG
         .integral
 }
 
+/// Where the size label and the loupe sit around the pointer, in top-left coordinates: the label
+/// up and to the left, the loupe down and to the left. Each moves to the other side when a screen
+/// edge is in the way. `loupe` is its diameter, and 0 leaves it out.
+func pointerCompanions(at pointer: CGPoint, label: CGSize, loupe: CGFloat, in bounds: CGRect) -> (label: CGRect, loupe: CGRect) {
+    let gap: CGFloat = 14
+    func x(_ width: CGFloat) -> CGFloat {
+        let left = pointer.x - gap - width
+        return left < bounds.minX ? pointer.x + gap : left
+    }
+    var labelY = pointer.y - gap - label.height
+    var loupeY = pointer.y + gap
+    // No room below: the loupe goes above the label.
+    if loupeY + loupe > bounds.maxY { loupeY = labelY - 6 - loupe }
+    // No room above: the label goes under the loupe.
+    if labelY < bounds.minY { labelY = loupeY + loupe + 6 }
+    return (
+        CGRect(x: x(label.width), y: labelY, width: label.width, height: label.height),
+        CGRect(x: x(loupe), y: loupeY, width: loupe, height: loupe))
+}
+
 /// Snaps `point` to the horizontal or vertical line through `anchor`, whichever is closer.
 func axisLocked(_ point: CGPoint, from anchor: CGPoint) -> CGPoint {
     abs(point.x - anchor.x) >= abs(point.y - anchor.y)
