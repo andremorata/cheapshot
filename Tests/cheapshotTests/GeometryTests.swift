@@ -197,3 +197,16 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
     // 3 732 480 bits per second is 28 MB per minute.
     #expect(abs(VideoSettings().megabytesPerMinute(width: 1920, height: 1080) - 27.99) < 0.01)
 }
+
+@Test func captureActionIsRemembered() throws {
+    let name = "cheapshot-test-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: name))
+    defer { defaults.removePersistentDomain(forName: name) }
+    // Nothing saved: a thumbnail, and the Desktop as the folder.
+    #expect(CaptureAction.current(in: defaults) == .copy)
+    #expect(CaptureAction.folder(in: defaults).lastPathComponent == "Desktop")
+    CaptureAction.setCurrent(.folder, in: defaults)
+    CaptureAction.setFolder(URL(fileURLWithPath: "/tmp/shots"), in: defaults)
+    #expect(CaptureAction.current(in: defaults) == .folder)
+    #expect(CaptureAction.folder(in: defaults).path == "/tmp/shots")
+}

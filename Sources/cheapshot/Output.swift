@@ -1,6 +1,38 @@
 import AppKit
 import UniformTypeIdentifiers
 
+/// What happens to a screenshot after it is taken. It always goes to the clipboard first.
+enum CaptureAction: String, CaseIterable, Sendable {
+    case copy, edit, ask, folder
+
+    var title: String {
+        switch self {
+        case .copy: "Show a thumbnail"
+        case .edit: "Open the editor"
+        case .ask: "Ask where to save"
+        case .folder: "Save to a folder"
+        }
+    }
+
+    static func current(in defaults: UserDefaults = .standard) -> CaptureAction {
+        defaults.string(forKey: "capture.action").flatMap(CaptureAction.init) ?? .copy
+    }
+
+    static func setCurrent(_ action: CaptureAction, in defaults: UserDefaults = .standard) {
+        defaults.set(action.rawValue, forKey: "capture.action")
+    }
+
+    /// Where `folder` saves. The Desktop until the user picks somewhere else, like the system screenshots.
+    static func folder(in defaults: UserDefaults = .standard) -> URL {
+        defaults.string(forKey: "capture.folder").map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+    }
+
+    static func setFolder(_ url: URL, in defaults: UserDefaults = .standard) {
+        defaults.set(url.path, forKey: "capture.folder")
+    }
+}
+
 @MainActor
 enum Output {
     static func copy(_ shot: Shot) {
@@ -26,6 +58,23 @@ enum Output {
             : bitmap(shot).representation(using: .png, properties: [:])
         guard let data else { throw CocoaError(.fileWriteUnknown) }
         try data.write(to: url, options: .atomic)
+    }
+
+    /// Writes a PNG into `folder` under a dated name, creating the folder if needed.
+    @discardableResult
+    static func write(_ shot: Shot, toFolder folder: URL) throws -> URL {
+        guard let data = bitmap(shot).representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // Two captures in the same second get "name 2.png", so the second does not replace the first.
+        let name = fileName("png")
+        var url = folder.appendingPathComponent(name)
+        var copy = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = folder.appendingPathComponent(name.replacingOccurrences(of: ".png", with: " \(copy).png"))
+            copy += 1
+        }
+        try data.write(to: url, options: .atomic)
+        return url
     }
 
     /// A default name with the date and time, such as "cheapshot 2026-10-08T112033Z.png".

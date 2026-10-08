@@ -53,7 +53,10 @@ func snapshotWindows() throws {
 
         let settings = SettingsWindow(setHotKeysEnabled: { _ in })
         settings.window.appearance = NSAppearance(named: appearance)
-        try write(settings.window, to: folder.appendingPathComponent("settings-\(name).png"))
+        for (index, tab) in ["general", "shortcuts", "recording"].enumerated() {
+            settings.tabs.selectTabViewItem(at: index)
+            try write(settings.window, to: folder.appendingPathComponent("settings-\(tab)-\(name).png"))
+        }
     }
 }
 

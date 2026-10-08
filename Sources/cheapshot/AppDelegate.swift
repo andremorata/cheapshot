@@ -196,7 +196,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             lastShot = shot
             Output.copy(shot)
             Self.shutter?.play()
-            Thumbnail.show(shot) { Editor.open(shot) }
+            switch CaptureAction.current() {
+            case .copy:
+                Thumbnail.show(shot) { Editor.open(shot) }
+            case .edit:
+                Editor.open(shot)
+            case .ask:
+                try Output.save(shot)
+            case .folder:
+                try Output.write(shot, toFolder: CaptureAction.folder())
+                Thumbnail.show(shot) { Editor.open(shot) }
+            }
         } catch {
             report(error)
         }
