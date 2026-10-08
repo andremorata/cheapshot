@@ -17,10 +17,21 @@ The name is a pun. The app exists because its author did not want to pay for a s
 
 ## Install
 
+With Homebrew:
+
+```sh
+brew install --cask andremorata/tap/cheapshot
+```
+
+Or by hand:
+
 1. Download `cheapshot-<version>.zip` from the [latest release](https://github.com/andremorata/cheapshot/releases/latest) and unzip it.
 2. Move `cheapshot.app` to Applications and open it.
-3. The build is not notarized by Apple, so macOS blocks the first launch. Open System Settings, go to Privacy & Security, and click "Open Anyway".
-4. Take a capture. macOS asks for Screen Recording permission the first time. Grant it, then quit and reopen cheapshot.
+
+Either way, two things happen on first use:
+
+- The build is not notarized by Apple, so macOS blocks the first launch. Open System Settings, go to Privacy & Security, and click "Open Anyway".
+- Take a capture. macOS asks for Screen Recording permission the first time. Grant it, then quit and reopen cheapshot.
 
 Recording with the microphone asks for Microphone permission the first time.
 
