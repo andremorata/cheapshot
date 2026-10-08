@@ -3,6 +3,10 @@ APP := build/cheapshot.app
 # Set yours in local.mk, which git ignores: CODESIGN_IDENTITY := cheapshot dev
 -include local.mk
 CODESIGN_IDENTITY ?= -
+# The version comes from the latest git tag, so tags are the only place it is written.
+# The release workflow passes the next one in.
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null)
 
 .PHONY: app run test snapshots icon clean
 
@@ -12,6 +16,8 @@ app:
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	cp "$$(swift build -c release --show-bin-path)/cheapshot" $(APP)/Contents/MacOS/cheapshot
 	cp Support/Info.plist $(APP)/Contents/Info.plist
+	plutil -replace CFBundleShortVersionString -string "$(or $(VERSION),0.0.0)" $(APP)/Contents/Info.plist
+	plutil -replace CFBundleVersion -string "$(or $(BUILD_NUMBER),1)" $(APP)/Contents/Info.plist
 	cp Support/AppIcon.icns Support/MenuBarIcon.svg $(APP)/Contents/Resources/
 	codesign --force --sign "$(CODESIGN_IDENTITY)" $(APP)
 

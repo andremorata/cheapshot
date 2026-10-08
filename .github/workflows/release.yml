@@ -1,0 +1,144 @@
+name: Release
+
+# A push to main that touches the app cuts a release with the patch number bumped.
+# Put [skip ci] in the commit message to push without releasing.
+# Run it by hand to pick the version, or to rehearse without publishing.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "Support/**"
+      - "Package.swift"
+      - "Makefile"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, such as 0.2.0. Empty bumps the patch number."
+        required: false
+      dry_run:
+        description: "Build, test and package, but publish nothing."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# One release at a time, so two pushes in a row cannot pick the same version.
+concurrency: release
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      DRY_RUN: ${{ inputs.dry_run || false }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed to find the last version.
+          fetch-depth: 0
+
+      - name: Pick the version
+        id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          previous=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          if [ -n "$REQUESTED" ]; then
+            version="${REQUESTED#v}"
+          else
+            IFS=. read -r major minor patch <<< "${previous#v}"
+            version="${major:-0}.${minor:-0}.$(( ${patch:-0} + 1 ))"
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'$version' is not a version like 1.2.3"; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/v$version" > /dev/null; then
+            echo "::error::v$version already exists"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version (previous: ${previous:-none})"
+
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      # The same self-signed identity as every earlier release. macOS ties the Screen Recording
+      # permission to it, so a different signature would make every user grant it again.
+      - name: Import the signing identity
+        env:
+          SIGNING_P12: ${{ secrets.SIGNING_P12 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(uuidgen)
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          echo "$SIGNING_P12" | base64 --decode > "$RUNNER_TEMP/identity.p12"
+          security import "$RUNNER_TEMP/identity.p12" -k "$keychain" -P "$SIGNING_P12_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/identity.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+      - name: Test
+        run: make test
+
+      - name: Build
+        run: make app VERSION="${{ steps.version.outputs.version }}" CODESIGN_IDENTITY="cheapshot dev"
+
+      - name: Package
+        id: package
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          zip="build/cheapshot-$version.zip"
+          # A build signed any other way must never ship. It would break the permission for everyone.
+          codesign -d -r- build/cheapshot.app 2>&1 | grep -q 'certificate leaf' || { echo "::error::not signed with the release identity"; exit 1; }
+          codesign --verify --deep --strict build/cheapshot.app
+          ditto -c -k --sequesterRsrc --keepParent build/cheapshot.app "$zip"
+          echo "zip=$zip" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cheapshot-${{ steps.version.outputs.version }}
+          path: ${{ steps.package.outputs.zip }}
+
+      - name: Publish the release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          previous="${{ steps.version.outputs.previous }}"
+          {
+            git log --format='- %s' ${previous:+"$previous"..}HEAD
+            echo
+            echo 'Requires macOS 15 or later on Apple silicon. The app is not notarized. On first launch, open System Settings, go to Privacy & Security and click "Open Anyway".'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "v$version" "${{ steps.package.outputs.zip }}" \
+            --target "$GITHUB_SHA" --title "cheapshot $version" --notes-file "$RUNNER_TEMP/notes.md"
+
+      - name: Update the Homebrew cask
+        if: env.DRY_RUN != 'true'
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          key="$RUNNER_TEMP/tap_key"
+          echo "$TAP_DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+          git clone --depth 1 git@github.com:andremorata/homebrew-tap.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          sed -i '' -E \
+            -e "s/^  version \".*\"/  version \"$version\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"${{ steps.package.outputs.sha256 }}\"/" \
+            Casks/cheapshot.rb
+          git config user.name "cheapshot release"
+          git config user.email "1455566+andremorata@users.noreply.github.com"
+          git commit -am "Update cheapshot to $version"
+          git push origin HEAD
+          rm "$key"

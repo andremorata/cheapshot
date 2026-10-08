@@ -98,6 +98,12 @@ CODESIGN_IDENTITY := the name of your certificate
 
 Each recording appends a summary of its audio tracks to `~/Library/Logs/cheapshot.log`.
 
+## Releasing
+
+A push to `main` that changes the app runs the release workflow. It bumps the patch number, tests, builds, signs, publishes a GitHub release and updates the Homebrew cask. Put `[skip ci]` in the commit message to push without releasing.
+
+For a minor or major version, run the workflow by hand from the Actions tab and type the version. The same form has a rehearsal option that builds and packages without publishing.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
