@@ -71,7 +71,7 @@ import Testing
 
 /// Renders one effect over a 40x40 image whose left half is black and right half is white,
 /// and returns the red channel of the pixel at `x` on the middle row.
-private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
+private func redAfter(_ kind: Annotation.Kind, x: Int, lineWidth: CGFloat = 8) throws -> UInt8 {
     func makeContext() throws -> CGContext {
         try #require(CGContext(
             data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
@@ -86,7 +86,7 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
 
     let output = try makeContext()
     output.draw(image, in: CGRect(x: 0, y: 0, width: 40, height: 40))
-    let effect = Annotation(kind: kind, start: CGPoint(x: 5, y: 5), end: CGPoint(x: 35, y: 35), color: .black, lineWidth: 4)
+    let effect = Annotation(kind: kind, start: CGPoint(x: 5, y: 5), end: CGPoint(x: 35, y: 35), color: .black, lineWidth: lineWidth)
     effect.draw(in: output, source: image, scale: 1)
     let bytes = try #require(output.data).assumingMemoryBound(to: UInt8.self)
     return bytes[20 * output.bytesPerRow + x * 4]
@@ -95,11 +95,20 @@ private func redAfter(_ kind: Annotation.Kind, x: Int) throws -> UInt8 {
 @Test func effectsChangeThePixelsTheyCover() throws {
     // Redact paints solid black over the white half.
     #expect(try redAfter(.redact, x: 30) == 0)
-    // Blur and pixelate mix black and white near the edge, so a pure white pixel turns gray.
+    // Blur mixes black and white near the edge, so a pure white pixel turns gray.
     #expect((1...254).contains(try redAfter(.blur, x: 22)))
-    #expect((1...254).contains(try redAfter(.pixelate, x: 22)))
+    // Pixelate paints each block with one sampled color, and this block samples the black half.
+    #expect(try redAfter(.pixelate, x: 22) != 255)
     // Outside the frame nothing changes.
     #expect(try redAfter(.blur, x: 38) == 255)
+}
+
+@Test func effectsNeverGoBelowTheFloor() throws {
+    // The thinnest setting must hide as much as the floor does, or large text stays readable under it.
+    for kind in [Annotation.Kind.blur, .pixelate] {
+        #expect(try redAfter(kind, x: 22, lineWidth: 2) == redAfter(kind, x: 22, lineWidth: Annotation.weakestEffect))
+        #expect(try redAfter(kind, x: 22, lineWidth: 2) != redAfter(kind, x: 22, lineWidth: 12))
+    }
 }
 
 @Test func shiftLocksToTheCloserAxis() {

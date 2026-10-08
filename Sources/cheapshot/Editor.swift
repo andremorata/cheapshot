@@ -16,7 +16,8 @@ final class Editor: NSObject, NSWindowDelegate {
             (.brush, "scribble", "Brush (D)"),
         ],
         [
-            (.blur, "drop", "Blur (B)"), (.pixelate, "square.grid.3x3.fill", "Pixelate (P)"),
+            (.blur, "drop", "Blur (B). Hides from a glance, but text can sometimes be recovered"),
+            (.pixelate, "square.grid.3x3.fill", "Pixelate (P). Hides from a glance, but text can sometimes be recovered"),
             (.redact, "rectangle.fill", "Redact (X). A solid block, the safe choice for sensitive text"),
         ],
         [(.crop, "crop", "Crop (C)")],

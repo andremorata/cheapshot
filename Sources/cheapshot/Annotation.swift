@@ -150,6 +150,9 @@ struct Annotation: Equatable, Sendable {
     /// Filters the piece of the capture under the frame and paints it back in place. The
     /// thickness setting doubles as strength.
     // NOTE: the filter runs again on every redraw. Cache the result per annotation if dragging gets slow.
+    /// The lowest thickness blur and pixelate work at. At 6 points the blocks are taller than a line of body text.
+    static let weakestEffect: CGFloat = 6
+
     private func drawEffect(in context: CGContext, source: CGImage, scale: CGFloat) {
         let imageHeight = CGFloat(source.height) / scale
         let pixels = pixelRect(forCrop: frame, imageHeight: imageHeight, scale: scale)
@@ -157,7 +160,8 @@ struct Annotation: Equatable, Sendable {
         guard !pixels.isEmpty, let patch = source.cropping(to: pixels) else { return }
         // Clamping repeats the edge pixels outward, so the blur does not fade to clear at the borders.
         let input = CIImage(cgImage: patch)
-        let strength = lineWidth * scale
+        // A thin setting would leave large text readable, so effects never go below the floor.
+        let strength = max(lineWidth, Self.weakestEffect) * scale
         let filtered = kind == .blur
             ? input.clampedToExtent().applyingGaussianBlur(sigma: strength * 2)
             : input.clampedToExtent().applyingFilter("CIPixellate", parameters: [
