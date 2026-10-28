@@ -71,7 +71,7 @@ Settings has an option to open cheapshot at login. The menu bar icon can be hidd
 
 Each tool's letter shows in the corner of its button. Hold Shift to keep a line horizontal or vertical, or a box square. Return copies the result and closes the editor. Esc cancels. ⌘S saves as PNG or JPEG, and ⌘Z undoes.
 
-With the text tool, a click opens a text box in the current color and font. The thickness slider sets the text size. Return or a click elsewhere finishes, Option-Return starts a new line, and a double click edits the text again.
+With the text tool, a click opens a text box in the current color and font. The thickness slider sets the text size. Return finishes and selects the text. A click elsewhere finishes it too and opens the next box there. Shift-Return starts a new line, and a double click edits the text again.
 
 The brush always draws, even when a stroke starts on top of another one. To move a stroke, pick it with any other tool.
 

@@ -16,7 +16,7 @@ final class Editor: NSObject, NSWindowDelegate {
             (.rectangle, "rectangle", "Rectangle (R). Hold Shift for a square"),
             (.ellipse, "circle", "Ellipse (O). Hold Shift for a circle"),
             (.brush, "scribble", "Brush (D)"),
-            (.text, "textformat", "Text (T). Return finishes, Option-Return starts a new line, a double click edits"),
+            (.text, "textformat", "Text (T). Return finishes, Shift-Return starts a new line, a double click edits"),
         ],
         [
             (.blur, "drop", "Blur (B). Hides from a glance, but text can sometimes be recovered"),

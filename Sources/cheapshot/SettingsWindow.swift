@@ -153,6 +153,11 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             tabs.heightAnchor.constraint(equalToConstant: largest.height + 48),
         ])
         window.title = "cheapshot Settings"
+        // `make app` writes the version from the git tag. A build run outside the bundle has none.
+        let info = Bundle.main.infoDictionary
+        window.subtitle = (info?["CFBundleShortVersionString"] as? String).map {
+            "Version \($0) (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        } ?? "Development build"
         window.isReleasedWhenClosed = false
         window.contentView = content
         window.setContentSize(content.fittingSize)

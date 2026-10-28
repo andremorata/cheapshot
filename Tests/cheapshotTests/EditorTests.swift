@@ -28,14 +28,15 @@ import Testing
     let middle = CGPoint(x: canvas.bounds.midX, y: canvas.bounds.midY)
     let elsewhere = CGPoint(x: middle.x - 200, y: middle.y + 100)
 
-    // A click with the text tool opens a box. Return finishes it as one undo step.
+    // A click with the text tool opens a box. Return finishes it as one undo step and leaves it selected.
+    // Shift-Return is not covered: it needs NSApp.currentEvent, and posting one stops the test runner's run loop.
     canvas.tool = .text
     drag(middle, middle)
     let field = try #require(window.firstResponder as? NSTextView)
     field.insertText("Hello", replacementRange: NSRange(location: NSNotFound, length: 0))
     canvas.typeface = .mono
     field.doCommand(by: #selector(NSResponder.insertNewline(_:)))
-    #expect(!canvas.isTyping && window.firstResponder === canvas)
+    #expect(!canvas.isTyping && window.firstResponder === canvas && canvas.selected == 0)
     #expect(canvas.document.annotations.map(\.text) == ["Hello"])
     #expect(canvas.document.annotations[0].typeface == .mono)
     canvas.undoManager?.undo()
@@ -47,13 +48,12 @@ import Testing
     drag(inside, inside)
     drag(inside, inside, clicks: 2)
     #expect((window.firstResponder as? NSTextView)?.string == "Hello")
-    // A click elsewhere ends typing and opens nothing.
+    // A click elsewhere ends typing and opens the next box there.
     drag(elsewhere, elsewhere)
-    #expect(!canvas.isTyping && canvas.document.annotations.count == 1)
+    #expect(canvas.isTyping && canvas.document.annotations.count == 2)
+    #expect(canvas.document.annotations[0].text == "Hello")
     // A box left empty is dropped.
-    drag(elsewhere, elsewhere)
-    #expect(canvas.isTyping)
-    drag(middle, middle)
+    try #require(window.firstResponder as? NSTextView).doCommand(by: #selector(NSResponder.cancelOperation(_:)))
     #expect(!canvas.isTyping && canvas.document.annotations.count == 1)
 
     // A brush stroke stays unselected, and the next one can start on top of it.

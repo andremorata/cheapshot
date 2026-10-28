@@ -49,8 +49,6 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     /// The text being typed: its annotation, the view taking the keys, and the document before typing began.
     private var typing: (index: Int, view: NSTextView, before: Document)?
-    /// The click that ends typing does nothing else. This is its timestamp.
-    private var typingEndedAt: TimeInterval?
     var isTyping: Bool { typing != nil }
 
     init(shot: Shot) {
@@ -197,9 +195,9 @@ final class CanvasView: NSView, NSTextViewDelegate {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
-        // Clicking makes the canvas first responder, which ends typing. That click stops there.
-        if typing != nil { window?.makeFirstResponder(self); return }
-        guard event.timestamp != typingEndedAt else { return }
+        // Clicking makes the canvas first responder, which ends typing. The click then goes on,
+        // so with the text tool it opens the next box.
+        if typing != nil { window?.makeFirstResponder(self) }
         let point = imagePoint(event)
         let tolerance = 6 / zoom
         beforeDrag = document
@@ -350,8 +348,12 @@ final class CanvasView: NSView, NSTextViewDelegate {
         syncTyping()
     }
 
-    /// Return and Esc finish the text. Option-Return starts a new line.
+    /// Return and Esc finish the text. Shift-Return starts a new line, as in most apps.
     func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if selector == #selector(insertNewline(_:)), NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+            textView.insertNewlineIgnoringFieldEditor(nil)
+            return true
+        }
         let finishers = [#selector(insertNewline(_:)), #selector(cancelOperation(_:)), #selector(complete(_:))]
         guard finishers.contains(selector) else { return false }
         window?.makeFirstResponder(self)
@@ -367,9 +369,13 @@ final class CanvasView: NSView, NSTextViewDelegate {
     func textDidEndEditing(_ notification: Notification) {
         guard let typing else { return }
         self.typing = nil
-        typingEndedAt = NSApp.currentEvent?.timestamp
         typingUndo = UndoManager()
-        if document.annotations[typing.index].text.isEmpty { document.annotations.remove(at: typing.index) }
+        // Finished text is selected, so its box shows that typing is over.
+        if document.annotations[typing.index].text.isEmpty {
+            document.annotations.remove(at: typing.index)
+        } else {
+            selected = typing.index
+        }
         commit(replacing: typing.before, "Type")
         // Removing the view while it resigns first responder is not safe, so it goes on the next turn.
         DispatchQueue.main.async { typing.view.removeFromSuperview() }
