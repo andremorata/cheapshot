@@ -145,6 +145,22 @@ private func redAfter(_ kind: Annotation.Kind, x: Int, lineWidth: CGFloat = 8) t
     #expect(!stroke.hitTest(CGPoint(x: 20, y: 15), tolerance: 4))
 }
 
+@Test func textHangsFromItsStartAndGrowsWithThickness() {
+    var text = Annotation(kind: .text, start: CGPoint(x: 10, y: 100), end: CGPoint(x: 10, y: 100), color: .defaultInk, lineWidth: 4, text: "Hi")
+    let small = text.bounds
+    #expect(small.minX == 10 && small.maxY == 100 && small.height > 0)
+    #expect(text.hitTest(CGPoint(x: small.midX, y: small.midY), tolerance: 4))
+    #expect(!text.hitTest(CGPoint(x: small.midX, y: 120), tolerance: 4))
+    // Thicker means bigger, and a second line makes it taller. The top stays put.
+    text.lineWidth = 8
+    #expect(text.bounds.width > small.width && text.bounds.maxY == 100)
+    text.text = "Hi\nthere"
+    #expect(text.bounds.height > small.height * 3)
+    // Empty text still has a line's height, so the caret shows.
+    text.text = ""
+    #expect(text.bounds.height > 0)
+}
+
 @Test func videoSizesAreEvenAndBitrateFollowsTheSettings() {
     #expect(evenPixels(641.9) == 640)
     #expect(evenPixels(640) == 640)

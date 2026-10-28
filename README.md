@@ -8,7 +8,7 @@ The name is a pun. The app exists because its author did not want to pay for a s
 
 - Captures a region, a window or the whole screen. Every capture goes to the clipboard.
 - After a screenshot it shows a thumbnail, opens the editor, asks where to save or saves straight to a folder. You choose which in Settings.
-- Annotates with arrows, lines, rectangles, ellipses and a freehand brush, with color, thickness and fill.
+- Annotates with arrows, lines, rectangles, ellipses, a freehand brush and text, with color, thickness, fill and font.
 - Hides things with blur, pixelate or a solid redaction block.
 - Crops, with undo for every edit.
 - Reads the text in a region of the screen into an editable box. The recognition runs on the device.
@@ -63,12 +63,17 @@ Settings has an option to open cheapshot at login. The menu bar icon can be hidd
 | R | Rectangle |
 | O | Ellipse |
 | D | Brush |
+| T | Text |
 | B | Blur |
 | P | Pixelate |
 | X | Redact |
 | C | Crop |
 
-Hold Shift to keep a line horizontal or vertical, or a box square. Return copies the result and closes the editor. Esc cancels. ⌘S saves as PNG or JPEG, and ⌘Z undoes.
+Each tool's letter shows in the corner of its button. Hold Shift to keep a line horizontal or vertical, or a box square. Return copies the result and closes the editor. Esc cancels. ⌘S saves as PNG or JPEG, and ⌘Z undoes.
+
+With the text tool, a click opens a text box in the current color and font. The thickness slider sets the text size. Return or a click elsewhere finishes, Option-Return starts a new line, and a double click edits the text again.
+
+The brush always draws, even when a stroke starts on top of another one. To move a stroke, pick it with any other tool.
 
 Blur and pixelate hide things from a casual look, but text under them can sometimes be recovered. Use redact for anything sensitive.
 

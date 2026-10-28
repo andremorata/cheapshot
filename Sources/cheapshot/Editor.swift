@@ -6,14 +6,17 @@ final class Editor: NSObject, NSWindowDelegate {
     private static var current: Editor?
     private static let barHeight: CGFloat = 52
     /// Wide enough for the tools on the left and the two buttons on the right.
-    private static let minWidth: CGFloat = 900
+    private static let minWidth: CGFloat = 1040
 
     /// Tools as they appear in the bar: shapes, then effects, then crop.
     private static let toolGroups: [[(tool: Tool, symbol: String, tip: String)]] = [
         [
-            (.arrow, "arrow.up.right", "Arrow (A)"), (.line, "line.diagonal", "Line (L)"),
-            (.rectangle, "rectangle", "Rectangle (R)"), (.ellipse, "circle", "Ellipse (O)"),
+            (.arrow, "arrow.up.right", "Arrow (A). Hold Shift to keep it level"),
+            (.line, "line.diagonal", "Line (L). Hold Shift to keep it level"),
+            (.rectangle, "rectangle", "Rectangle (R). Hold Shift for a square"),
+            (.ellipse, "circle", "Ellipse (O). Hold Shift for a circle"),
             (.brush, "scribble", "Brush (D)"),
+            (.text, "textformat", "Text (T). Return finishes, Option-Return starts a new line, a double click edits"),
         ],
         [
             (.blur, "drop", "Blur (B). Hides from a glance, but text can sometimes be recovered"),
@@ -54,11 +57,8 @@ final class Editor: NSObject, NSWindowDelegate {
             contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         canvas = CanvasView(shot: shot)
-        let symbolStyle = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         toolControls = Self.toolGroups.map { group in
-            let images = group.map {
-                NSImage(systemSymbolName: $0.symbol, accessibilityDescription: $0.tip)?.withSymbolConfiguration(symbolStyle) ?? NSImage()
-            }
+            let images = group.map { Self.icon($0.symbol, key: $0.tool.key, description: $0.tip) }
             let control = NSSegmentedControl(images: images, trackingMode: .selectOne, target: nil, action: #selector(toolPicked))
             control.controlSize = .large
             for (index, entry) in group.enumerated() {
@@ -85,7 +85,7 @@ final class Editor: NSObject, NSWindowDelegate {
         let slider = NSSlider(value: canvas.lineWidth, minValue: 2, maxValue: 40, target: self, action: #selector(widthPicked))
         // Applies on release, so one drag is one undo step.
         slider.isContinuous = false
-        slider.toolTip = "Thickness. For blur and pixelate, strength"
+        slider.toolTip = "Thickness. For text, size. For blur and pixelate, strength"
         slider.widthAnchor.constraint(equalToConstant: 90).isActive = true
 
         let fill = NSImageView(image: NSImage(systemSymbolName: "square.lefthalf.filled", accessibilityDescription: "Fill") ?? NSImage())
@@ -95,18 +95,29 @@ final class Editor: NSObject, NSWindowDelegate {
         fillSlider.toolTip = "Fill opacity for rectangles and ellipses. All the way left is no fill"
         fillSlider.widthAnchor.constraint(equalToConstant: 90).isActive = true
 
+        // Each font is listed in itself.
+        let fonts = NSPopUpButton(frame: .zero, pullsDown: false)
+        for face in Typeface.allCases {
+            fonts.addItem(withTitle: face.name)
+            fonts.lastItem?.attributedTitle = NSAttributedString(string: face.name, attributes: [.font: face.font(size: 13)])
+        }
+        fonts.target = self
+        fonts.action = #selector(fontPicked)
+        fonts.toolTip = "Font for text"
+
         // Plain frames with autoresizing: the bar keeps its height at the top, the canvas takes the rest.
         let bar = NSStackView(frame: CGRect(x: 0, y: canvasSize.height, width: contentSize.width, height: Self.barHeight))
         bar.autoresizingMask = [.width, .minYMargin]
         bar.orientation = .horizontal
         bar.spacing = 10
         bar.edgeInsets = NSEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-        bar.setViews(toolControls + [well, weight, slider, fill, fillSlider], in: .leading)
+        bar.setViews(toolControls + [well, weight, slider, fill, fillSlider, fonts], in: .leading)
         if let lastTools = toolControls.last { bar.setCustomSpacing(20, after: lastTools) }
         bar.setCustomSpacing(16, after: well)
         bar.setCustomSpacing(6, after: weight)
         bar.setCustomSpacing(16, after: slider)
         bar.setCustomSpacing(6, after: fill)
+        bar.setCustomSpacing(16, after: fillSlider)
 
         // Standard dialog keys: Return triggers the default button, Esc triggers Cancel.
         let cancel = NSButton(title: "Cancel", target: self, action: #selector(close))
@@ -162,18 +173,47 @@ final class Editor: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The symbol with its shortcut letter in the corner, so the key shows without hovering.
+    private static func icon(_ symbol: String, key: String, description: String) -> NSImage {
+        let style = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
+        let base = NSImage(systemSymbolName: symbol, accessibilityDescription: description)?.withSymbolConfiguration(style) ?? NSImage()
+        let letter = NSAttributedString(string: key.uppercased(), attributes: [.font: NSFont.systemFont(ofSize: 9, weight: .bold)])
+        let badge = letter.size()
+        let size = CGSize(width: base.size.width + badge.width, height: base.size.height + badge.height / 2)
+        let image = NSImage(size: size, flipped: false) { _ in
+            base.draw(in: CGRect(origin: CGPoint(x: 0, y: size.height - base.size.height), size: base.size))
+            letter.draw(at: CGPoint(x: size.width - badge.width, y: 0))
+            return true
+        }
+        // The control tints a template image, so the letter follows the segment's state like the symbol.
+        image.isTemplate = true
+        image.accessibilityDescription = description
+        return image
+    }
+
     @objc private func copyAndClose() {
+        // Return while typing finishes the text. A click on Copy finishes it and copies.
+        if canvas.isTyping {
+            window.makeFirstResponder(canvas)
+            if NSApp.currentEvent?.type == .keyDown { return }
+        }
         Output.copy(canvas.rendered())
         close()
     }
 
-    @objc private func close() { window.performClose(nil) }
+    @objc private func close() {
+        // Esc while typing finishes the text instead of closing.
+        if canvas.isTyping, NSApp.currentEvent?.type == .keyDown { window.makeFirstResponder(canvas); return }
+        window.performClose(nil)
+    }
 
     @objc private func colorPicked(_ sender: NSColorWell) { canvas.color = RGBA(sender.color) }
 
     @objc private func widthPicked(_ sender: NSSlider) { canvas.lineWidth = sender.doubleValue }
 
     @objc private func fillPicked(_ sender: NSSlider) { canvas.fillOpacity = sender.doubleValue }
+
+    @objc private func fontPicked(_ sender: NSPopUpButton) { canvas.typeface = Typeface.allCases[sender.indexOfSelectedItem] }
 
     func windowWillClose(_ notification: Notification) {
         if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }

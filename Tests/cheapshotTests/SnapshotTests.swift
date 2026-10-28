@@ -43,6 +43,9 @@ func snapshotWindows() throws {
                 Annotation(kind: .blur, start: CGPoint(x: 40, y: 150), end: CGPoint(x: 260, y: 215), color: ink, lineWidth: 4),
                 Annotation(kind: .pixelate, start: CGPoint(x: 330, y: 150), end: CGPoint(x: 560, y: 215), color: ink, lineWidth: 4),
                 Annotation(kind: .redact, start: CGPoint(x: 330, y: 60), end: CGPoint(x: 560, y: 100), color: .black, lineWidth: 4),
+                Annotation(
+                    kind: .text, start: CGPoint(x: 250, y: 140), end: CGPoint(x: 250, y: 140), color: ink, lineWidth: 4,
+                    text: "Check this\nSerif, second line", typeface: .serif),
             ],
             crop: nil)
         editor.canvas.selected = 1

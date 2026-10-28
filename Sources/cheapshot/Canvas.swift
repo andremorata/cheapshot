@@ -9,7 +9,7 @@ struct Document: Equatable, Sendable {
 }
 
 /// Draws the capture with its annotations, and turns mouse and key input into edits.
-final class CanvasView: NSView {
+final class CanvasView: NSView, NSTextViewDelegate {
     static let margin: CGFloat = 24
 
     var tool: Tool = .arrow
@@ -22,6 +22,9 @@ final class CanvasView: NSView {
     /// From 0 (no fill) to 1. Only rectangles and ellipses use it.
     var fillOpacity: CGFloat = 0 {
         didSet { restyleSelection("Change Fill") { $0.fillOpacity = fillOpacity } }
+    }
+    var typeface: Typeface = .sans {
+        didSet { restyleSelection("Change Font") { $0.typeface = typeface } }
     }
     /// Called when a tool's letter key is pressed, so the toolbar can follow.
     var onToolShortcut: ((Tool) -> Void)?
@@ -43,6 +46,12 @@ final class CanvasView: NSView {
     }
     private var drag: Drag?
     private var beforeDrag = Document()
+
+    /// The text being typed: its annotation, the view taking the keys, and the document before typing began.
+    private var typing: (index: Int, view: NSTextView, before: Document)?
+    /// The click that ends typing does nothing else. This is its timestamp.
+    private var typingEndedAt: TimeInterval?
+    var isTyping: Bool { typing != nil }
 
     init(shot: Shot) {
         self.shot = shot
@@ -94,7 +103,10 @@ final class CanvasView: NSView {
         context.clip(to: rect)
         context.translateBy(x: rect.minX, y: rect.minY)
         context.scaleBy(x: zoom, y: zoom)
-        for annotation in document.annotations { annotation.draw(in: context, source: shot.image, scale: shot.scale) }
+        // The text being typed is drawn by its text view.
+        for (index, annotation) in document.annotations.enumerated() where index != typing?.index {
+            annotation.draw(in: context, source: shot.image, scale: shot.scale)
+        }
         if let crop = document.crop { drawCrop(crop, in: context) }
         if let selected { drawHandles(for: document.annotations[selected], in: context) }
         context.restoreGState()
@@ -117,8 +129,8 @@ final class CanvasView: NSView {
         context.setFillColor(.white)
         context.setStrokeColor(NSColor.controlAccentColor.cgColor)
         context.setLineWidth(1.5 / zoom)
-        // A freehand stroke has no ends worth dragging, so it gets a dashed box and no handles.
-        guard annotation.kind != .freehand else {
+        // A brush stroke or text has no ends worth dragging, so it gets a dashed box and no handles.
+        guard annotation.kind.hasEnds else {
             let pad = annotation.lineWidth / 2 + 4 / zoom
             context.setLineDash(phase: 0, lengths: [4 / zoom, 3 / zoom])
             context.stroke(annotation.bounds.insetBy(dx: -pad, dy: -pad))
@@ -171,6 +183,11 @@ final class CanvasView: NSView {
 
     // NOTE: dragging inside the color panel records one undo step per color it passes through.
     private func restyleSelection(_ name: String, _ change: (inout Annotation) -> Void) {
+        if let typing {
+            // The restyle becomes part of the typing's undo step.
+            change(&document.annotations[typing.index])
+            return syncTyping()
+        }
         guard let selected else { return }
         let old = document
         change(&document.annotations[selected])
@@ -180,6 +197,9 @@ final class CanvasView: NSView {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        // Clicking makes the canvas first responder, which ends typing. That click stops there.
+        if typing != nil { window?.makeFirstResponder(self); return }
+        guard event.timestamp != typingEndedAt else { return }
         let point = imagePoint(event)
         let tolerance = 6 / zoom
         beforeDrag = document
@@ -189,26 +209,33 @@ final class CanvasView: NSView {
             drag = .cropping(from: point)
             return
         }
-        if let selected, document.annotations[selected].kind != .freehand {
-            let current = document.annotations[selected]
-            for (handle, isStart) in [(current.start, true), (current.end, false)]
-            where hypot(point.x - handle.x, point.y - handle.y) <= handleRadius + tolerance / 2 {
-                drag = .resizing(selected, start: isStart)
+        // The brush always draws, even over another stroke, so a line can go on where it stopped.
+        // Other shapes are moved with any other tool.
+        if shape != .freehand {
+            if let selected, document.annotations[selected].kind.hasEnds {
+                let current = document.annotations[selected]
+                for (handle, isStart) in [(current.start, true), (current.end, false)]
+                where hypot(point.x - handle.x, point.y - handle.y) <= handleRadius + tolerance / 2 {
+                    drag = .resizing(selected, start: isStart)
+                    return
+                }
+            }
+            // Topmost first.
+            if let hit = document.annotations.lastIndex(where: { $0.hitTest(point, tolerance: tolerance) }) {
+                // A double click on text edits it.
+                if event.clickCount == 2, document.annotations[hit].kind == .text { return startTyping(hit) }
+                selected = hit
+                drag = .moving(hit, from: point)
                 return
             }
-        }
-        // Topmost first.
-        if let hit = document.annotations.lastIndex(where: { $0.hitTest(point, tolerance: tolerance) }) {
-            selected = hit
-            drag = .moving(hit, from: point)
-            return
         }
         // A redaction starts black whatever the ink color is. The color well can still change it.
         let ink = shape == .redact ? .black : color
         document.annotations.append(Annotation(
             kind: shape, start: point, end: point, color: ink, lineWidth: lineWidth,
-            fillOpacity: fillOpacity, points: shape == .freehand ? [point] : []))
+            fillOpacity: fillOpacity, points: shape == .freehand ? [point] : [], typeface: typeface))
         selected = nil
+        if shape == .text { return startTyping(document.annotations.count - 1) }
         drag = .drawing
     }
 
@@ -243,7 +270,7 @@ final class CanvasView: NSView {
     /// which makes an ellipse a circle. `anchor` is the end that is not moving.
     private func locked(_ point: CGPoint, to anchor: CGPoint, at index: Int, _ event: NSEvent) -> CGPoint {
         let kind = document.annotations[index].kind
-        guard event.modifierFlags.contains(.shift), kind != .freehand else { return point }
+        guard event.modifierFlags.contains(.shift), kind.hasEnds else { return point }
         return kind.isStraight ? axisLocked(point, from: anchor) : squared(point, from: anchor)
     }
 
@@ -256,7 +283,8 @@ final class CanvasView: NSView {
                 document = beforeDrag
                 return
             }
-            selected = document.annotations.count - 1
+            // A brush stroke stays unselected, so its box does not sit over the next stroke.
+            if drawn.kind != .freehand { selected = document.annotations.count - 1 }
             commit(replacing: beforeDrag, "Draw")
         case .moving:
             commit(replacing: beforeDrag, "Move")
@@ -273,20 +301,91 @@ final class CanvasView: NSView {
         }
     }
 
+    // MARK: Typing
+
+    /// Puts a text view over the text annotation at `index`, which stays hidden until typing ends.
+    private func startTyping(_ index: Int) {
+        let view = NSTextView()
+        view.drawsBackground = false
+        view.isRichText = false
+        view.allowsUndo = true
+        view.isVerticallyResizable = false
+        view.textContainerInset = .zero
+        view.textContainer?.lineFragmentPadding = 0
+        view.textContainer?.widthTracksTextView = false
+        view.textContainer?.containerSize = CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        view.string = document.annotations[index].text
+        view.delegate = self
+        addSubview(view)
+        typing = (index, view, beforeDrag)
+        selected = nil
+        syncTyping()
+        window?.makeFirstResponder(view)
+    }
+
+    /// Matches the text view to its annotation: same place, font and color at the current zoom.
+    private func syncTyping() {
+        guard let typing else { return }
+        let text = document.annotations[typing.index]
+        let box = text.bounds
+        let rect = imageRect
+        typing.view.font = text.font(scaledBy: zoom)
+        typing.view.textColor = text.color.nsColor
+        typing.view.insertionPointColor = text.color.nsColor
+        // A little extra width keeps the caret visible at the end of the line.
+        typing.view.frame = CGRect(
+            x: rect.minX + box.minX * zoom, y: rect.minY + box.minY * zoom,
+            width: box.width * zoom + 4, height: box.height * zoom)
+        needsDisplay = true
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        syncTyping()
+    }
+
+    func textDidChange(_ notification: Notification) {
+        guard let typing else { return }
+        document.annotations[typing.index].text = typing.view.string
+        syncTyping()
+    }
+
+    /// Return and Esc finish the text. Option-Return starts a new line.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        let finishers = [#selector(insertNewline(_:)), #selector(cancelOperation(_:)), #selector(complete(_:))]
+        guard finishers.contains(selector) else { return false }
+        window?.makeFirstResponder(self)
+        return true
+    }
+
+    /// Typing keeps its own undo history, so Cmd-Z cannot change the document under the text view.
+    func undoManager(for view: NSTextView) -> UndoManager? { typingUndo }
+    private var typingUndo = UndoManager()
+
+    /// Every way out of typing comes here, because the text view always gives up first responder.
+    /// Typing is one undo step, and empty text is dropped.
+    func textDidEndEditing(_ notification: Notification) {
+        guard let typing else { return }
+        self.typing = nil
+        typingEndedAt = NSApp.currentEvent?.timestamp
+        typingUndo = UndoManager()
+        if document.annotations[typing.index].text.isEmpty { document.annotations.remove(at: typing.index) }
+        commit(replacing: typing.before, "Type")
+        // Removing the view while it resigns first responder is not safe, so it goes on the next turn.
+        DispatchQueue.main.async { typing.view.removeFromSuperview() }
+    }
+
     // MARK: Keys and menu actions
 
     override func keyDown(with event: NSEvent) {
         let plain = event.modifierFlags.intersection([.command, .option, .control]).isEmpty
-        let shortcuts: [String: Tool] = [
-            "a": .arrow, "l": .line, "r": .rectangle, "o": .ellipse, "d": .brush,
-            "b": .blur, "p": .pixelate, "x": .redact, "c": .crop,
-        ]
+        let pressed = event.charactersIgnoringModifiers?.lowercased()
         if [kVK_Delete, kVK_ForwardDelete].contains(Int(event.keyCode)), let selected {
             let old = document
             document.annotations.remove(at: selected)
             self.selected = nil
             commit(replacing: old, "Delete")
-        } else if plain, let picked = shortcuts[event.charactersIgnoringModifiers?.lowercased() ?? ""] {
+        } else if plain, let picked = Tool.allCases.first(where: { $0.key == pressed }) {
             tool = picked
             onToolShortcut?(picked)
         } else {

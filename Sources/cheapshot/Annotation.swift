@@ -34,7 +34,7 @@ struct RGBA: Hashable, Sendable {
 /// capture pixels divided by the capture's scale, with the origin at the bottom-left.
 struct Annotation: Equatable, Sendable {
     enum Kind: Sendable {
-        case arrow, line, rectangle, ellipse, freehand
+        case arrow, line, rectangle, ellipse, freehand, text
         /// Area effects. Blur and pixelate hide things from a casual look, but text under them
         /// can sometimes be recovered. Redact paints a solid block and cannot be undone by a reader.
         case blur, pixelate, redact
@@ -42,6 +42,8 @@ struct Annotation: Equatable, Sendable {
         var coversItsArea: Bool { [.blur, .pixelate, .redact].contains(self) }
         var isStraight: Bool { self == .arrow || self == .line }
         var canBeFilled: Bool { self == .rectangle || self == .ellipse }
+        /// A brush stroke and text have no ends to drag, only a body to move.
+        var hasEnds: Bool { self != .freehand && self != .text }
     }
 
     var kind: Kind
@@ -53,6 +55,9 @@ struct Annotation: Equatable, Sendable {
     var fillOpacity: CGFloat = 0
     /// The path of a freehand stroke. Other kinds leave it empty and use `start` and `end`.
     var points: [CGPoint] = []
+    /// What a text annotation says. It hangs down and to the right from `start`.
+    var text = ""
+    var typeface: Typeface = .sans
 
     var frame: CGRect {
         CGRect(x: min(start.x, end.x), y: min(start.y, end.y), width: abs(end.x - start.x), height: abs(end.y - start.y))
@@ -61,7 +66,20 @@ struct Annotation: Equatable, Sendable {
     var length: CGFloat { hypot(end.x - start.x, end.y - start.y) }
 
     /// The box around everything the annotation draws, stroke width aside.
-    var bounds: CGRect { kind == .freehand ? outline.boundingBoxOfPath : frame }
+    var bounds: CGRect {
+        switch kind {
+        case .freehand: return outline.boundingBoxOfPath
+        case .text:
+            // Empty text, or text ending in a new line, still takes a line, so the caret has room.
+            let measured = text.isEmpty || text.hasSuffix("\n") ? text + " " : text
+            let size = NSAttributedString(string: measured, attributes: [.font: font()]).size()
+            return CGRect(x: start.x, y: start.y - size.height, width: size.width, height: size.height)
+        default: return frame
+        }
+    }
+
+    /// Text size follows the thickness setting, so the same slider makes text bigger or smaller.
+    func font(scaledBy zoom: CGFloat = 1) -> NSFont { typeface.font(size: lineWidth * 5 * zoom) }
 
     mutating func translate(dx: CGFloat, dy: CGFloat) {
         start.x += dx
@@ -83,6 +101,8 @@ struct Annotation: Equatable, Sendable {
             return CGPath(rect: frame, transform: nil)
         case .ellipse:
             return CGPath(ellipseIn: frame, transform: nil)
+        case .text:
+            return CGPath(rect: bounds, transform: nil)
         case .freehand:
             // Curves through the midpoints, with the recorded points as controls. It rounds off
             // the corners that raw mouse samples leave.
@@ -101,7 +121,7 @@ struct Annotation: Equatable, Sendable {
     /// rectangle or ellipse does not count, so shapes drawn inside it stay reachable. An effect
     /// or a filled shape is hit anywhere in its area.
     func hitTest(_ point: CGPoint, tolerance: CGFloat) -> Bool {
-        if kind.coversItsArea { return frame.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
+        if kind.coversItsArea || kind == .text { return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
         if kind.canBeFilled, fillOpacity > 0, outline.contains(point) { return true }
         return outline.copy(strokingWithWidth: lineWidth + tolerance * 2, lineCap: .round, lineJoin: .round, miterLimit: 10)
             .contains(point)
@@ -114,6 +134,7 @@ struct Annotation: Equatable, Sendable {
         switch kind {
         case .redact: return context.fill(frame)
         case .blur, .pixelate: return drawEffect(in: context, source: source, scale: scale)
+        case .text: return drawText(in: context)
         case .arrow, .line, .rectangle, .ellipse, .freehand: break
         }
         if kind.canBeFilled, fillOpacity > 0 {
@@ -143,6 +164,14 @@ struct Annotation: Equatable, Sendable {
         context.addLine(to: CGPoint(x: base.x + dy * head / 2, y: base.y - dx * head / 2))
         context.closePath()
         context.fillPath()
+    }
+
+    private func drawText(in context: CGContext) {
+        // AppKit draws strings into the current graphics context, so the CG context becomes it for a moment.
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+        NSAttributedString(string: text, attributes: [.font: font(), .foregroundColor: color.nsColor]).draw(in: bounds)
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private static let filters = CIContext()
@@ -176,9 +205,50 @@ struct Annotation: Equatable, Sendable {
     }
 }
 
+/// The fonts the text tool offers.
+enum Typeface: CaseIterable, Sendable {
+    case sans, serif, mono, times
+
+    var name: String {
+        switch self {
+        case .sans: "Sans"
+        case .serif: "Serif"
+        case .mono: "Mono"
+        case .times: "Times New Roman"
+        }
+    }
+
+    func font(size: CGFloat) -> NSFont {
+        let system = NSFont.systemFont(ofSize: size, weight: .semibold)
+        switch self {
+        case .sans: return system
+        case .serif:
+            return system.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: size) } ?? system
+        case .mono: return .monospacedSystemFont(ofSize: size, weight: .semibold)
+        case .times: return NSFont(name: "Times New Roman", size: size) ?? Typeface.serif.font(size: size)
+        }
+    }
+}
+
 /// What a drag on the canvas does.
-enum Tool: Sendable {
-    case arrow, line, rectangle, ellipse, brush, blur, pixelate, redact, crop
+enum Tool: CaseIterable, Sendable {
+    case arrow, line, rectangle, ellipse, brush, text, blur, pixelate, redact, crop
+
+    /// The letter that picks the tool in the editor.
+    var key: String {
+        switch self {
+        case .arrow: "a"
+        case .line: "l"
+        case .rectangle: "r"
+        case .ellipse: "o"
+        case .brush: "d"
+        case .text: "t"
+        case .blur: "b"
+        case .pixelate: "p"
+        case .redact: "x"
+        case .crop: "c"
+        }
+    }
 
     /// The annotation this tool draws, or nil for a tool that draws none.
     var shape: Annotation.Kind? {
@@ -188,6 +258,7 @@ enum Tool: Sendable {
         case .rectangle: .rectangle
         case .ellipse: .ellipse
         case .brush: .freehand
+        case .text: .text
         case .blur: .blur
         case .pixelate: .pixelate
         case .redact: .redact
