@@ -71,8 +71,11 @@ jobs:
           swift --version
 
       # Before the signing identity is imported, so test code never runs with it in reach.
+      # script gives it a terminal, because without one swift test only prints its output at the end,
+      # and a test that hangs leaves nothing in the log.
       - name: Test
-        run: make test
+        timeout-minutes: 10
+        run: script -q /dev/null make test < /dev/null
 
       # The same self-signed identity as every earlier release. macOS ties the Screen Recording
       # permission to it, so a different signature would make every user grant it again.
