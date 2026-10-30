@@ -3,7 +3,7 @@ import AppKit
 /// The annotation window. There is one at a time, and opening another capture replaces it.
 @MainActor
 final class Editor: NSObject, NSWindowDelegate {
-    private static var current: Editor?
+    private(set) static var current: Editor?
     private static let barHeight: CGFloat = 52
     /// Wide enough for the tools on the left and the two buttons on the right.
     private static let minWidth: CGFloat = 1040
@@ -218,6 +218,6 @@ final class Editor: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }
         Editor.current = nil
-        NSApp.setActivationPolicy(.accessory)
+        if VideoEditor.current == nil { NSApp.setActivationPolicy(.accessory) }
     }
 }

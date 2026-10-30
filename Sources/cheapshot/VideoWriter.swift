@@ -39,6 +39,21 @@ struct VideoSettings: Equatable, Sendable {
         Double(bitrate(width: width, height: height)) * 60 / 8 / 1_000_000
     }
 
+    /// What an `AVAssetWriterInput` needs to encode video with these settings.
+    func outputSettings(width: Int, height: Int) -> [String: Any] {
+        [
+            AVVideoCodecKey: codec == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: bitrate(width: width, height: height),
+                AVVideoExpectedSourceFrameRateKey: framesPerSecond,
+                // A keyframe at least every 2 seconds keeps seeking quick.
+                AVVideoMaxKeyFrameIntervalDurationKey: 2,
+            ],
+        ]
+    }
+
     /// The choices made in the settings window. Audio options come from the record panel instead.
     static func load(from defaults: UserDefaults = .standard) -> VideoSettings {
         var settings = VideoSettings()
@@ -91,17 +106,7 @@ final class VideoWriter: @unchecked Sendable {
     init(url: URL, width: Int, height: Int, settings: VideoSettings) throws {
         writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
         gains = [.system: settings.systemGain, .microphone: settings.microphoneGain]
-        video = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: settings.codec == .hevc ? AVVideoCodecType.hevc : AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: settings.bitrate(width: width, height: height),
-                AVVideoExpectedSourceFrameRateKey: settings.framesPerSecond,
-                // A keyframe at least every 2 seconds keeps seeking quick.
-                AVVideoMaxKeyFrameIntervalDurationKey: 2,
-            ],
-        ])
+        video = AVAssetWriterInput(mediaType: .video, outputSettings: settings.outputSettings(width: width, height: height))
         video.expectsMediaDataInRealTime = true
         guard writer.canAdd(video) else { throw RecordingError.cannotConfigure }
         writer.add(video)

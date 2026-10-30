@@ -47,15 +47,7 @@ func mixAudioTracks(of url: URL, replacingMicrophoneWith cleaned: CleanedMicroph
     let reader = try AVAssetReader(asset: composition)
     // `nil` settings hand over the compressed video samples untouched.
     let videoOutput = AVAssetReaderTrackOutput(track: video, outputSettings: nil)
-    let audioOutput = AVAssetReaderAudioMixOutput(audioTracks: audio, audioSettings: [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 48_000,
-        AVNumberOfChannelsKey: 2,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsNonInterleaved: false,
-    ])
+    let audioOutput = AVAssetReaderAudioMixOutput(audioTracks: audio, audioSettings: mixedPCMSettings)
     reader.add(videoOutput)
     reader.add(audioOutput)
 
@@ -63,32 +55,59 @@ func mixAudioTracks(of url: URL, replacingMicrophoneWith cleaned: CleanedMicroph
     let writer = try AVAssetWriter(outputURL: mixedURL, fileType: .mp4)
     let videoInput = AVAssetWriterInput(
         mediaType: .video, outputSettings: nil, sourceFormatHint: try await videoTrack.load(.formatDescriptions).first)
-    let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+    let audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings: mixedAACSettings)
+    writer.add(videoInput)
+    writer.add(audioInput)
+
+    try await copySamples(from: reader, to: writer, tracks: [(videoOutput, videoInput), (audioOutput, audioInput)], from: .zero)
+    _ = try FileManager.default.replaceItemAt(url, withItemAt: mixedURL)
+}
+
+/// What a mixdown decodes to and encodes from. The video editor writes the same audio.
+var mixedPCMSettings: [String: Any] {
+    [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 48_000,
+        AVNumberOfChannelsKey: 2,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false,
+    ]
+}
+
+var mixedAACSettings: [String: Any] {
+    [
         AVFormatIDKey: kAudioFormatMPEG4AAC,
         AVSampleRateKey: 48_000,
         AVNumberOfChannelsKey: 2,
         AVEncoderBitRateKey: 160_000,
-    ])
-    writer.add(videoInput)
-    writer.add(audioInput)
+    ]
+}
 
+/// Moves every sample from the reader to the writer and finishes the file. The file's timeline
+/// runs from `start` to `end`, or to its last sample without one. A failure removes the file.
+func copySamples(
+    from reader: AVAssetReader, to writer: AVAssetWriter, tracks: [(AVAssetReaderOutput, AVAssetWriterInput)],
+    from start: CMTime, to end: CMTime? = nil
+) async throws {
     guard reader.startReading(), writer.startWriting() else {
         throw reader.error ?? writer.error ?? RecordingError.cannotFinish
     }
-    writer.startSession(atSourceTime: .zero)
+    writer.startSession(atSourceTime: start)
 
     // Each pump moves one track on its own queue. AVFoundation objects are not Sendable, but
     // each pair is only ever touched from its pump.
-    let pumps: [Pump] = [Pump(videoOutput, videoInput), Pump(audioOutput, audioInput)]
+    let pumps = tracks.map { Pump($0.0, $0.1) }
     await withTaskGroup(of: Void.self) { group in
         for pump in pumps { group.addTask { await pump.run() } }
     }
+    if let end { writer.endSession(atSourceTime: end) }
     await writer.finishWriting()
     guard reader.status == .completed, writer.status == .completed else {
-        try? FileManager.default.removeItem(at: mixedURL)
+        try? FileManager.default.removeItem(at: writer.outputURL)
         throw reader.error ?? writer.error ?? RecordingError.cannotFinish
     }
-    _ = try FileManager.default.replaceItemAt(url, withItemAt: mixedURL)
 }
 
 /// Copies every sample from a reader output to a writer input.

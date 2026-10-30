@@ -14,6 +14,7 @@ The name is a pun. The app exists because its author did not want to pay for a s
 - Reads the text in a region of the screen into an editable box. The recognition runs on the device.
 - Records a region, a window or the screen to MP4, with the system sound, the microphone or both.
 - Cleans the microphone with voice isolation and mixes both sources into one audio track.
+- Edits a recording on a timeline before saving: trims the start and the end, crops the picture, stacks music files and narrations with their own volumes, and converts to MP4, MOV or GIF.
 
 ## Install
 
@@ -81,7 +82,21 @@ Blur and pixelate hide things from a casual look, but text under them can someti
 
 The record shortcut opens a small panel. It asks what to record, which audio sources to include and how loud, and how long to count down. The panel remembers the last choice, so the usual flow is the shortcut followed by Return.
 
-Stop from the red button in the menu bar or with the same shortcut. cheapshot then asks where to save the file.
+Stop from the red button in the menu bar or with the same shortcut. The recording then opens in the video editor, and nothing is saved until you press Save.
+
+The editor shows the video on a dark stage, with a timeline under it. The timeline has a row for the video, one for the recorded sound and one for each audio you add.
+
+- Drag the yellow ends of the video row to trim. That cuts the start and the end of everything on the timeline, not a part in the middle.
+- Click anywhere on a row, or on the ruler, to move the playhead. Space plays and pauses.
+- Each audio row has its own volume, from silent to 400%, and its waveform shrinks with it. 100% is the middle of the slider. The preview plays at those volumes.
+- Import Audio adds an audio file, such as an MP3, on a new row. Record Voice-over adds a narration from the microphone on a new row, and plays the video silently until you press Stop or the video ends. Both start at the playhead, and there can be six of them.
+- Drag an added clip to move it, and drag its ends to cut it. Audio that runs past the end of the video stops there. The x on the row removes it.
+- Crop shows the rectangle to keep over the video. Drag a corner or a side to resize it, drag inside to move it, and drag anywhere else to draw a new one. The menu next to it fixes the shape to 16:9, 4:3, 1:1, 4:5 or 9:16. Return finishes, and the rest stays dimmed while you play the video. Reset brings back the whole picture.
+- The menu at the top picks the format: MP4 or MOV, each with HEVC or H.264, or GIF. A GIF has no sound and is at most 960 pixels wide, at 10 frames per second.
+
+Return saves. Esc asks before it discards the recording. A new recording has to wait until this one is saved or discarded.
+
+Saving an untouched recording only moves the file. A trim or an audio change keeps the video as it is and encodes the audio again. A crop or a new codec encodes the video again with the quality from Settings.
 
 Codec, resolution, frame rate and quality are in Settings. The defaults are HEVC, one pixel per point, 30 frames per second and medium quality. That comes to about 28 MB per minute for a 1920 × 1080 area, before audio.
 

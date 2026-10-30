@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Testing
 @testable import cheapshot
 
@@ -8,7 +9,7 @@ private let snapshotFolder = ProcessInfo.processInfo.environment["CHEAPSHOT_SNAP
 
 @MainActor
 @Test(.enabled(if: snapshotFolder != nil))
-func snapshotWindows() throws {
+func snapshotWindows() async throws {
     _ = NSApplication.shared
     let folder = URL(fileURLWithPath: try #require(snapshotFolder))
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -67,6 +68,26 @@ func snapshotWindows() throws {
         let record = RecordPanel(options: recordOptions, onStart: { _ in })
         record.window.appearance = NSAppearance(named: appearance)
         try write(record.window, to: folder.appendingPathComponent("record-\(name).png"))
+
+        let video = try await VideoEditor(recording: try await sampleRecording())
+        video.window.appearance = NSAppearance(named: appearance)
+        await video.loading?.value
+        try write(video.window, to: folder.appendingPathComponent("video-\(name).png"))
+        video.overlay.crop = CGRect(x: 40, y: 0, width: 240, height: 240)
+        video.overlay.isEditing = true
+        try write(video.window, to: folder.appendingPathComponent("video-crop-\(name).png"))
+        video.overlay.crop = nil
+        video.overlay.isEditing = false
+
+        // A trim and a clip on its own row, cut and moved.
+        let song = try await sampleRecording()
+        var clip = try await AudioClip(file: song, start: CMTime(seconds: 0.5, preferredTimescale: 600), volume: 0.3)
+        clip.length = CMTime(seconds: 2, preferredTimescale: 600)
+        await video.useClips([clip])
+        await video.loadPeaks(of: song)
+        video.trimmedRange = CMTimeRange(
+            start: CMTime(seconds: 0.25, preferredTimescale: 600), end: CMTime(seconds: 2.75, preferredTimescale: 600))
+        try write(video.window, to: folder.appendingPathComponent("video-rows-\(name).png"))
 
         let settings = SettingsWindow(setHotKeysEnabled: { _ in })
         settings.window.appearance = NSAppearance(named: appearance)

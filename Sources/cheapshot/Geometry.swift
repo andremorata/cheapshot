@@ -66,3 +66,42 @@ func squared(_ point: CGPoint, from anchor: CGPoint) -> CGPoint {
 func evenPixels(_ length: CGFloat) -> Int {
     max(Int(length) / 2 * 2, 2)
 }
+
+/// The box from `anchor`, which stays put, toward `point`. It stays inside `bounds` and is at
+/// least `minimum` long on each side. With `ratio`, width over height, it keeps that shape.
+func cropRect(from anchor: CGPoint, to point: CGPoint, ratio: CGFloat?, in bounds: CGRect, minimum: CGFloat) -> CGRect {
+    // A side too near the edge for the minimum grows the other way instead.
+    func direction(_ delta: CGFloat, before: CGFloat, after: CGFloat, needs: CGFloat) -> CGFloat {
+        if delta < 0, before >= needs { return -1 }
+        return after >= needs ? 1 : -1
+    }
+    let minWidth = max(minimum, minimum * (ratio ?? 1))
+    let minHeight = max(minimum, minimum / (ratio ?? 1))
+    let dx = point.x - anchor.x
+    let dy = point.y - anchor.y
+    let right = direction(dx, before: anchor.x - bounds.minX, after: bounds.maxX - anchor.x, needs: minWidth)
+    let down = direction(dy, before: anchor.y - bounds.minY, after: bounds.maxY - anchor.y, needs: minHeight)
+    let roomX = right > 0 ? bounds.maxX - anchor.x : anchor.x - bounds.minX
+    let roomY = down > 0 ? bounds.maxY - anchor.y : anchor.y - bounds.minY
+
+    var width = max(abs(dx), minWidth)
+    var height = max(abs(dy), minHeight)
+    if let ratio {
+        width = min(max(width, height * ratio), roomX, roomY * ratio)
+        height = width / ratio
+    } else {
+        width = min(width, roomX)
+        height = min(height, roomY)
+    }
+    return CGRect(
+        x: right > 0 ? anchor.x : anchor.x - width, y: down > 0 ? anchor.y : anchor.y - height,
+        width: width, height: height)
+}
+
+/// Whole pixels for the origin and even ones for the size, which video codecs require. The result
+/// stays inside any whole-pixel bounds that held `rect`.
+func evenPixelRect(_ rect: CGRect) -> CGRect {
+    let x = rect.minX.rounded()
+    let y = rect.minY.rounded()
+    return CGRect(x: x, y: y, width: CGFloat(evenPixels(rect.maxX.rounded() - x)), height: CGFloat(evenPixels(rect.maxY.rounded() - y)))
+}

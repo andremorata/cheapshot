@@ -3,7 +3,7 @@ import Testing
 @testable import cheapshot
 
 /// A solid-color frame in the pixel format the recorder asks ScreenCaptureKit for.
-private func frame(width: Int, height: Int, at time: CMTime) throws -> CMSampleBuffer {
+func frame(width: Int, height: Int, at time: CMTime) throws -> CMSampleBuffer {
     var pixels: CVPixelBuffer?
     CVPixelBufferCreate(
         nil, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
@@ -59,7 +59,7 @@ func writesAPlayableFile(codec: VideoSettings.Codec) async throws {
 }
 
 /// A sine tone in the format ScreenCaptureKit delivers: 48 kHz float samples, one buffer per channel.
-private func tone(_ frequency: Double, channels: UInt32, at time: CMTime, frames: Int = 4800) throws -> CMSampleBuffer {
+func tone(_ frequency: Double, channels: UInt32, at time: CMTime, frames: Int = 4800) throws -> CMSampleBuffer {
     let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: channels, interleaved: false))
     let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
     buffer.frameLength = AVAudioFrameCount(frames)
@@ -80,7 +80,7 @@ private func tone(_ frequency: Double, channels: UInt32, at time: CMTime, frames
 }
 
 /// The loudest sample in the file's first audio track, from 0 to 1.
-private func peak(of url: URL) async throws -> Float {
+func peak(of url: URL) async throws -> Float {
     let asset = AVURLAsset(url: url)
     let track = try #require(try await asset.loadTracks(withMediaType: .audio).first)
     let reader = try AVAssetReader(asset: asset)

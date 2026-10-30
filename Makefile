@@ -6,7 +6,8 @@ CODESIGN_IDENTITY ?= -
 # The version comes from the latest git tag, so tags are the only place it is written.
 # The release workflow passes the next one in.
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
-BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null)
+# The date and time, so every build gets a new number.
+BUILD_NUMBER ?= $(shell date +%y%m%d.%H%M)
 
 .PHONY: app run test snapshots icon clean
 

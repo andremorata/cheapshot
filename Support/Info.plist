@@ -22,7 +22,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>cheapshot records the microphone only while Record Microphone is turned on.</string>
+	<string>cheapshot records the microphone only when you ask it to, for a recording or a narration.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 </dict>

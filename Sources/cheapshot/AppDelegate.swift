@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 import Carbon.HIToolbox
-import UniformTypeIdentifiers
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
@@ -12,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var recorder: Recorder?
     /// True from the hotkey press until the stream is running, so a second press cannot start another.
     private var isStartingRecording = false
+    /// True from the stop until the video editor opens, so a new recording cannot overtake the last one.
+    private var isFinishingRecording = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -30,9 +31,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return false
     }
 
-    /// Quitting in the middle of a recording would throw the file away. It stops and asks where
-    /// to save instead, and the app stays open. Quitting again after that goes through.
+    /// Quitting in the middle of a recording would throw the file away. It stops and opens the
+    /// video editor instead, and the app stays open. Quitting with the editor open asks about the
+    /// unsaved recording first. Quitting again after that goes through.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if let editor = VideoEditor.current {
+            editor.window.performClose(nil)
+            return .terminateCancel
+        }
         guard recorder != nil else { return .terminateNow }
         stopRecording()
         return .terminateCancel
@@ -230,12 +236,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// The record hotkey opens a quick panel first: what to record, which audio, and the countdown.
     private func showRecordPanel() {
-        guard !isStartingRecording else { return }
+        guard !isStartingRecording, !isFinishingRecording else { return }
+        // The recording in the editor exists only there until it is saved, so it comes first.
+        if let editor = VideoEditor.current { return editor.present() }
         RecordPanel.show { [weak self] in self?.record($0) }
     }
 
     /// Shows the system prompt the first time. After a refusal it explains where to turn the permission on.
-    private func hasMicrophoneAccess() async -> Bool {
+    static func hasMicrophoneAccess() async -> Bool {
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { return true }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined {
             return await AVCaptureDevice.requestAccess(for: .audio)
@@ -260,7 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             defer { isStartingRecording = false }
             // Asked before anything else, so the system prompt never lands in the middle of the countdown.
             if options.microphone {
-                guard await hasMicrophoneAccess() else { return }
+                guard await Self.hasMicrophoneAccess() else { return }
             }
             let target: Capture.Target? = switch options.mode {
             case .region: await SelectionOverlay.pick(.region)
@@ -351,41 +359,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             statusItem.menu = makeMenu()
             statusItem.isVisible = SettingsWindow.showsMenuBarIcon
         }
+        isFinishingRecording = true
         Task {
-            do { try await saveRecording(try await recorder.stop()) } catch { report(error) }
-        }
-    }
-
-    /// Asks where the recording goes. Cancelling asks once more before the file is thrown away.
-    private func saveRecording(_ temporary: URL) async throws {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
-        panel.nameFieldStringValue = Output.fileName("mp4")
-        panel.directoryURL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
-        NSApp.activate()
-        while true {
-            if panel.runModal() == .OK, let destination = panel.url {
-                // The panel already asked about replacing an existing file.
-                try? FileManager.default.removeItem(at: destination)
-                try FileManager.default.moveItem(at: temporary, to: destination)
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.writeObjects([destination as NSURL])
-                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: destination))
-                generator.appliesPreferredTrackTransform = true
-                if let frame = try? await generator.image(at: .zero).image {
-                    Thumbnail.show(Shot(image: frame, scale: 1)) { NSWorkspace.shared.activateFileViewerSelecting([destination]) }
-                }
-                return
-            }
-            let alert = NSAlert()
-            alert.messageText = "Discard this recording?"
-            alert.informativeText = "It has not been saved anywhere yet."
-            alert.addButton(withTitle: "Save…")
-            alert.addButton(withTitle: "Discard")
-            if alert.runModal() != .alertFirstButtonReturn {
-                try? FileManager.default.removeItem(at: temporary)
-                return
-            }
+            defer { isFinishingRecording = false }
+            do { try await VideoEditor.open(try await recorder.stop()) } catch { report(error) }
         }
     }
 
