@@ -90,17 +90,19 @@ func peak(of url: URL) async throws -> Float {
     ])
     reader.add(output)
     reader.startReading()
-    var loudest: Int16 = 0
-    while let sample = output.copyNextSampleBuffer(), let block = sample.dataBuffer {
-        var length = 0
-        var pointer: UnsafeMutablePointer<CChar>?
-        CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer)
-        guard let pointer else { continue }
-        pointer.withMemoryRebound(to: Int16.self, capacity: length / 2) { samples in
-            for index in 0..<(length / 2) { loudest = max(loudest, abs(samples[index] == .min ? .max : samples[index])) }
+    return try await offThePool {
+        var loudest: Int16 = 0
+        while let sample = output.copyNextSampleBuffer(), let block = sample.dataBuffer {
+            var length = 0
+            var pointer: UnsafeMutablePointer<CChar>?
+            CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer)
+            guard let pointer else { continue }
+            pointer.withMemoryRebound(to: Int16.self, capacity: length / 2) { samples in
+                for index in 0..<(length / 2) { loudest = max(loudest, abs(samples[index] == .min ? .max : samples[index])) }
+            }
         }
+        return Float(loudest) / Float(Int16.max)
     }
-    return Float(loudest) / Float(Int16.max)
 }
 
 /// Records one second with the system sound and the microphone, then mixes the two into one track.

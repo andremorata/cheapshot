@@ -282,9 +282,11 @@ private func peak(of url: URL, from start: Double, to end: Double) async throws 
     ])
     reader.add(output)
     reader.startReading()
-    var loudest: Float = 0
-    while let sample = output.copyNextSampleBuffer() { loudest = max(loudest, cheapshot.peak(of: sample) ?? 0) }
-    return loudest
+    return try await offThePool {
+        var loudest: Float = 0
+        while let sample = output.copyNextSampleBuffer() { loudest = max(loudest, cheapshot.peak(of: sample) ?? 0) }
+        return loudest
+    }
 }
 
 /// Added audio starts where it was placed, mixes with the recorded sound and stops with the video.

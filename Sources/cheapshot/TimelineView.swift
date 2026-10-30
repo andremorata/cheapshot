@@ -23,19 +23,21 @@ func audioPeaks(of file: URL) async throws -> [Float] {
     ])
     reader.add(output)
     guard reader.startReading() else { throw reader.error ?? RecordingError.cannotFinish }
-    var peaks: [Float] = []
-    while let sample = output.copyNextSampleBuffer() {
-        guard let block = sample.dataBuffer else { continue }
-        let first = Int(sample.presentationTimeStamp.seconds * Double(rate))
-        try block.dataBytes().withUnsafeBytes { bytes in
-            for (index, value) in bytes.bindMemory(to: Float.self).enumerated() {
-                let bucket = (first + index) * peaksPerSecond / rate
-                if bucket >= peaks.count { peaks.append(contentsOf: repeatElement(0, count: bucket - peaks.count + 1)) }
-                peaks[bucket] = max(peaks[bucket], abs(value))
+    return try await offThePool {
+        var peaks: [Float] = []
+        while let sample = output.copyNextSampleBuffer() {
+            guard let block = sample.dataBuffer else { continue }
+            let first = Int(sample.presentationTimeStamp.seconds * Double(rate))
+            try block.dataBytes().withUnsafeBytes { bytes in
+                for (index, value) in bytes.bindMemory(to: Float.self).enumerated() {
+                    let bucket = (first + index) * peaksPerSecond / rate
+                    if bucket >= peaks.count { peaks.append(contentsOf: repeatElement(0, count: bucket - peaks.count + 1)) }
+                    peaks[bucket] = max(peaks[bucket], abs(value))
+                }
             }
         }
+        return peaks
     }
-    return peaks
 }
 
 /// The left end of a row: what it is, how loud it plays, and a way to remove it.

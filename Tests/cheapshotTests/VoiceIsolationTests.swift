@@ -48,15 +48,17 @@ private func decode(_ url: URL) async throws -> [Float] {
     ])
     reader.add(output)
     reader.startReading()
-    var values: [Float] = []
-    while let sample = output.copyNextSampleBuffer(), let block = sample.dataBuffer {
-        var length = 0
-        var pointer: UnsafeMutablePointer<CChar>?
-        CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer)
-        guard let pointer else { continue }
-        pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { values += UnsafeBufferPointer(start: $0, count: length / 4) }
+    return try await offThePool {
+        var values: [Float] = []
+        while let sample = output.copyNextSampleBuffer(), let block = sample.dataBuffer {
+            var length = 0
+            var pointer: UnsafeMutablePointer<CChar>?
+            CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &pointer)
+            guard let pointer else { continue }
+            pointer.withMemoryRebound(to: Float.self, capacity: length / 4) { values += UnsafeBufferPointer(start: $0, count: length / 4) }
+        }
+        return values
     }
-    return values
 }
 
 private func rms(_ values: ArraySlice<Float>) -> Float {

@@ -110,6 +110,15 @@ func copySamples(
     }
 }
 
+/// Runs a blocking media read outside the threads async code shares. There are only as many
+/// of those as cores, and a read that blocks them all can stop every other read.
+func offThePool<T: Sendable>(_ work: sending @escaping () throws -> T) async throws -> T {
+    nonisolated(unsafe) let work = work
+    return try await withCheckedThrowingContinuation { continuation in
+        DispatchQueue.global().async { continuation.resume(with: Result(catching: work)) }
+    }
+}
+
 /// Copies every sample from a reader output to a writer input.
 private final class Pump: @unchecked Sendable {
     private let output: AVAssetReaderOutput
@@ -147,7 +156,7 @@ func isolateVoice(inMicrophoneTrackOf url: URL) async throws -> CleanedMicrophon
     // The microphone is the last audio track the recorder adds.
     guard let track = try await asset.loadTracks(withMediaType: .audio).last else { return nil }
     let start = try await track.load(.timeRange).start
-    guard let file = try isolateVoice(in: asset, track: track) else { return nil }
+    guard let file = try await offThePool({ try isolateVoice(in: asset, track: track) }) else { return nil }
     return CleanedMicrophone(file: file, start: start)
 }
 
