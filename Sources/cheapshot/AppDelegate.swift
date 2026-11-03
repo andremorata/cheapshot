@@ -25,9 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     /// Opening the app while it is already running, from Finder, Launchpad or Spotlight. With the
-    /// menu bar icon hidden this is the only way back to the settings.
+    /// menu bar icon hidden this is the only way back to the settings. With an editor open, the
+    /// Dock click only brings it forward. The settings would cover the recording that still waits.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        showSettings()
+        if !flag { showSettings() }
         return false
     }
 

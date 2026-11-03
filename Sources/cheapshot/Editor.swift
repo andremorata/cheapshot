@@ -156,6 +156,9 @@ final class Editor: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+        // macOS may refuse the activation when another app is in use, as after a recording stopped
+        // from the hotkey. The window still goes on top, so it does not open behind everything.
+        window.orderFrontRegardless()
         window.makeFirstResponder(canvas)
     }
 

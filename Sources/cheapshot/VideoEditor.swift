@@ -693,6 +693,9 @@ final class VideoEditor: NSObject, NSWindowDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
+        // macOS may refuse the activation when another app is in use, as after a recording stopped
+        // from the hotkey. The window still goes on top, so it does not open behind everything.
+        window.orderFrontRegardless()
     }
 
     private var format: VideoFormat { VideoFormat.allCases[max(formats.indexOfSelectedItem, 0)] }
