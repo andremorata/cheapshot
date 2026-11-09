@@ -68,6 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .region: pickAndCapture(.region)
         case .window: pickAndCapture(.window)
         case .screen: captureScreen()
+        case .scroll: ScrollCapture.isRunning ? ScrollCapture.finish() : captureScrolling()
         case .text: captureText()
         case .annotate: annotateLastCapture()
         case .record: recorder == nil ? showRecordPanel() : stopRecording()
@@ -97,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         add(.region)
         add(.window)
         add(.screen)
+        add(.scroll)
         add(.text)
         menu.addItem(.separator())
         add(.annotate)
@@ -163,6 +165,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard hasScreenAccess() else { return }
         guard let displayID = NSScreen.underMouse?.displayID else { return }
         Task { await deliver { try await Capture.shot(.display(displayID)) } }
+    }
+
+    /// A region picked on the live screen, then stitched while the user scrolls it.
+    private func captureScrolling() {
+        guard hasScreenAccess() else { return }
+        Task {
+            await deliver {
+                guard let target = await SelectionOverlay.pick(.region), let region = self.screenRect(of: target) else { return nil }
+                return try await ScrollCapture.run(target, around: region)
+            }
+        }
     }
 
     /// Reads the text in a dragged region and opens it in an editable window.

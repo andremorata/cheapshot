@@ -82,7 +82,11 @@ enum Capture {
     }
 
     static func shot(_ target: Target) async throws -> Shot {
-        let source = try await source(for: target)
+        try await shot(from: source(for: target))
+    }
+
+    /// A shot of a source found earlier, for repeated shots without looking the target up each time.
+    static func shot(from source: (filter: SCContentFilter, size: CGSize, region: CGRect?)) async throws -> Shot {
         let scale = CGFloat(source.filter.pointPixelScale)
         let config = SCStreamConfiguration()
         config.width = Int(source.size.width * scale)

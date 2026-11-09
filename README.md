@@ -7,6 +7,7 @@ The name is a pun. The app exists because its author did not want to pay for a s
 ## What it does
 
 - Captures a region, a window or the whole screen. Every capture goes to the clipboard.
+- Captures a region taller than the screen, such as a web page or a document, by stitching it together while you scroll.
 - After a screenshot it shows a thumbnail, opens the editor, asks where to save or saves straight to a folder. You choose which in Settings.
 - Annotates with arrows, lines, rectangles, ellipses, a freehand brush and text, with color, thickness, fill and font.
 - Hides things with blur, pixelate or a solid redaction block.
@@ -45,9 +46,12 @@ cheapshot needs macOS 15 or later on Apple silicon. It is built and tested on ma
 | Capture a region | ⌥⇧4 |
 | Capture a window | ⌥⇧5 |
 | Capture the screen | ⌥⇧3 |
+| Capture scrolling | ⌥⇧S |
 | Capture text | ⌥⇧T |
 | Annotate the last capture | ⌥⇧E |
 | Record, and stop recording | ⌥⇧R |
+
+For a scrolling capture, drag a region over the content, then scroll it down slowly with the mouse or the trackpad. A hint under the region shows how tall the image has grown. Return or ⌥⇧S again finishes, and Esc cancels. Scrolling too fast loses the place. Scroll back up a little and it picks up again. Only downward scrolling is stitched, and a header or footer that stays put shows once.
 
 All of them can be changed in Settings. While selecting, Esc or a right click cancels.
 
