@@ -11,7 +11,8 @@ The name is a pun. The app exists because its author did not want to pay for a s
 - After a screenshot it shows a thumbnail, opens the editor, asks where to save or saves straight to a folder. You choose which in Settings.
 - Annotates with arrows, lines, rectangles, ellipses, a freehand brush and text, with color, thickness, fill and font.
 - Hides things with blur, pixelate or a solid redaction block.
-- Crops, with undo for every edit.
+- Crops, with undo for every edit, and zooms in for detail work.
+- Draws on the live screen with a pen, shapes and text, for presenting.
 - Reads the text in a region of the screen into an editable box. The recognition runs on the device.
 - Records a region, a window or the screen to MP4, with the system sound, the microphone or both.
 - Cleans the microphone with voice isolation and mixes both sources into one audio track.
@@ -47,6 +48,7 @@ cheapshot needs macOS 15 or later on Apple silicon. It is built and tested on ma
 | Capture text | ⌥⇧T |
 | Annotate the last capture | ⌥⇧E |
 | Record, and stop recording | ⌥⇧R |
+| Draw on the screen, and stop | ⌥⇧D |
 
 For a scrolling capture, drag a region over the content, then scroll it down slowly with the mouse or the trackpad. A hint under the region shows how tall the image has grown. Return or ⌥⇧S again finishes, and Esc cancels. Scrolling too fast loses the place. Scroll back up a little and it picks up again. Only downward scrolling is stitched, and a header or footer that stays put shows once.
 
@@ -71,13 +73,27 @@ Settings has an option to open cheapshot at login. The menu bar icon can be hidd
 | X | Redact |
 | C | Crop |
 
-Each tool's letter shows in the corner of its button. Hold Shift to keep a line horizontal or vertical, or a box square. Return copies the result and closes the editor. Esc cancels. ⌘S saves as PNG or JPEG, and ⌘Z undoes.
+Each tool's letter shows in the corner of its button. Hold Shift to keep a line horizontal or vertical, or a box square. Return copies the result and closes the editor. Esc cancels. ⌘S or the Save button saves as PNG or JPEG, and the editor stays open. ⌘Z undoes.
+
+Pinch on the trackpad, or press ⌘= and ⌘-, to zoom up to 8x. ⌘0 fits the image to the window again. A zoomed image scrolls.
 
 With the text tool, a click opens a text box in the current color and font. The thickness slider sets the text size. Return finishes and selects the text. A click elsewhere finishes it too and opens the next box there. Shift-Return starts a new line, and a double click edits the text again.
 
 The brush always draws, even when a stroke starts on top of another one. To move a stroke, pick it with any other tool.
 
 Blur and pixelate hide things from a casual look, but text under them can sometimes be recovered. Use redact for anything sensitive.
+
+### Drawing on the screen
+
+⌥⇧D covers the screen under the pointer with a clear layer and a toolbar at the top. The apps underneath keep running, but clicks go to the drawing until it ends. Drag the toolbar by its background to move it.
+
+- Drag to draw with the pen. Shift-drag draws an arrow, ⌘-drag a rectangle and ⌥-drag an ellipse, whatever the tool.
+- The text tool opens a box where you click. Return finishes and Shift-Return starts a new line.
+- R, G, B, Y and O pick red, green, blue, yellow and orange. The slider sets the thickness, and the text size.
+- ⌘Z undoes the last stroke and E clears them all.
+- Esc, Done or ⌥⇧D again ends it, and the drawing goes away.
+
+Captures and recordings started while drawing include the drawing but not the toolbar.
 
 ## Recording
 
