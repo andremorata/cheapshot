@@ -137,6 +137,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             ("Paste", #selector(NSText.paste(_:)), "v"),
             ("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        submenu("View", [
+            ("Zoom In", #selector(CanvasView.zoomIn), "="),
+            ("Zoom Out", #selector(CanvasView.zoomOut), "-"),
+            ("Zoom to Fit", #selector(CanvasView.zoomToFit), "0"),
+        ])
         return main
     }
 

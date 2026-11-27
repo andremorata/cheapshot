@@ -5,8 +5,8 @@ import AppKit
 final class Editor: NSObject, NSWindowDelegate {
     private(set) static var current: Editor?
     private static let barHeight: CGFloat = 52
-    /// Wide enough for the tools on the left and the two buttons on the right.
-    private static let minWidth: CGFloat = 1040
+    /// Wide enough for the tools on the left and the three buttons on the right.
+    private static let minWidth: CGFloat = 1120
 
     /// Tools as they appear in the bar: shapes, then effects, then crop.
     private static let toolGroups: [[(tool: Tool, symbol: String, tip: String)]] = [
@@ -39,6 +39,8 @@ final class Editor: NSObject, NSWindowDelegate {
 
     let window: NSWindow
     let canvas: CanvasView
+    /// Holds the canvas, for pinch and menu zoom. At 1x the canvas fills it and nothing scrolls.
+    let scrollView: NSScrollView
     /// One segmented control per group in `toolGroups`. At most one segment is on across all of them.
     private let toolControls: [NSSegmentedControl]
 
@@ -57,6 +59,7 @@ final class Editor: NSObject, NSWindowDelegate {
             contentRect: CGRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         canvas = CanvasView(shot: shot)
+        scrollView = NSScrollView(frame: CGRect(origin: .zero, size: canvasSize))
         toolControls = Self.toolGroups.map { group in
             let images = group.map { Self.icon($0.symbol, key: $0.tool.key, description: $0.tip) }
             let control = NSSegmentedControl(images: images, trackingMode: .selectOne, target: nil, action: #selector(toolPicked))
@@ -127,16 +130,29 @@ final class Editor: NSObject, NSWindowDelegate {
         copy.keyEquivalent = "\r"
         copy.controlSize = .large
         copy.toolTip = "Copy the annotated capture and close"
-        bar.setViews([cancel, copy], in: .trailing)
+        // The same action as File > Save… (Cmd-S), sent up the responder chain to the canvas. The editor stays open.
+        let save = NSButton(title: "Save…", target: nil, action: #selector(CanvasView.saveDocument))
+        save.controlSize = .large
+        save.toolTip = "Save the annotated capture as PNG or JPEG (⌘S)"
+        bar.setViews([cancel, save, copy], in: .trailing)
 
         let divider = NSBox(frame: CGRect(x: 0, y: canvasSize.height - 1, width: contentSize.width, height: 1))
         divider.boxType = .separator
         divider.autoresizingMask = [.width, .minYMargin]
 
+        // The canvas keeps the scroll view's unmagnified size, set in windowDidResize, so zooming in leaves room to scroll.
         canvas.frame = CGRect(origin: .zero, size: canvasSize)
-        canvas.autoresizingMask = [.width, .height]
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.hasHorizontalScroller = true
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.drawsBackground = false
+        scrollView.allowsMagnification = true
+        scrollView.minMagnification = 1
+        scrollView.maxMagnification = 8
+        scrollView.documentView = canvas
         let content = NSView(frame: CGRect(origin: .zero, size: contentSize))
-        content.addSubview(canvas)
+        content.addSubview(scrollView)
         content.addSubview(divider)
         content.addSubview(bar)
 
@@ -217,6 +233,10 @@ final class Editor: NSObject, NSWindowDelegate {
     @objc private func fillPicked(_ sender: NSSlider) { canvas.fillOpacity = sender.doubleValue }
 
     @objc private func fontPicked(_ sender: NSPopUpButton) { canvas.typeface = Typeface.allCases[sender.indexOfSelectedItem] }
+
+    func windowDidResize(_ notification: Notification) {
+        canvas.setFrameSize(scrollView.contentSize)
+    }
 
     func windowWillClose(_ notification: Notification) {
         if NSColorPanel.sharedColorPanelExists { NSColorPanel.shared.orderOut(nil) }

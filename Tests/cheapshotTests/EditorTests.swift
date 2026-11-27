@@ -66,3 +66,36 @@ import Testing
     #expect(canvas.document.annotations.count == 3)
     #expect(canvas.document.annotations[1].points.last?.x == canvas.document.annotations[2].points.first?.x)
 }
+
+/// Zooming in must not move where a drag lands on the image, and Zoom to Fit goes back to 1x.
+@MainActor
+@Test func zoomKeepsDrawingOnTheImage() throws {
+    _ = NSApplication.shared
+    let context = try #require(CGContext(
+        data: nil, width: 1200, height: 800, bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+    let editor = Editor(shot: Shot(image: try #require(context.makeImage()), scale: 2))
+    let canvas = editor.canvas
+    let window = editor.window
+
+    canvas.zoomIn(nil)
+    #expect(editor.scrollView.magnification > 1)
+
+    // A rectangle around the middle of the view, which zoomIn kept in place, is around the middle of the image.
+    let middle = CGPoint(x: canvas.visibleRect.midX, y: canvas.visibleRect.midY)
+    func mouse(_ type: NSEvent.EventType, _ point: CGPoint, at time: TimeInterval) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: type, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: time,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+    canvas.tool = .rectangle
+    canvas.mouseDown(with: mouse(.leftMouseDown, CGPoint(x: middle.x - 20, y: middle.y - 20), at: 1))
+    canvas.mouseDragged(with: mouse(.leftMouseDragged, CGPoint(x: middle.x + 20, y: middle.y + 20), at: 2))
+    canvas.mouseUp(with: mouse(.leftMouseUp, CGPoint(x: middle.x + 20, y: middle.y + 20), at: 3))
+    let drawn = try #require(canvas.document.annotations.last)
+    // The image is 600 × 400 points, so its middle is (300, 200).
+    #expect(abs(drawn.frame.midX - 300) < 1 && abs(drawn.frame.midY - 200) < 1)
+
+    canvas.zoomToFit(nil)
+    #expect(editor.scrollView.magnification == 1)
+}

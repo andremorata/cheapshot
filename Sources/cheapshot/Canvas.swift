@@ -76,6 +76,10 @@ final class CanvasView: NSView, NSTextViewDelegate {
     /// View points per image point.
     private var zoom: CGFloat { natural.width > 0 ? imageRect.width / natural.width : 1 }
 
+    /// Screen points per image point, with the scroll view's magnification. Handles and click tolerances
+    /// use it, so they keep their size on screen at any zoom.
+    private var onScreen: CGFloat { zoom * (enclosingScrollView?.magnification ?? 1) }
+
     private func imagePoint(_ event: NSEvent) -> CGPoint {
         let point = convert(event.locationInWindow, from: nil)
         let rect = imageRect
@@ -117,20 +121,20 @@ final class CanvasView: NSView, NSTextViewDelegate {
         context.setFillColor(CGColor(gray: 0, alpha: 0.55))
         context.fillPath(using: .evenOdd)
         context.setStrokeColor(.white)
-        context.setLineWidth(1 / zoom)
+        context.setLineWidth(1 / onScreen)
         context.stroke(crop)
     }
 
-    private var handleRadius: CGFloat { 5 / zoom }
+    private var handleRadius: CGFloat { 5 / onScreen }
 
     private func drawHandles(for annotation: Annotation, in context: CGContext) {
         context.setFillColor(.white)
         context.setStrokeColor(NSColor.controlAccentColor.cgColor)
-        context.setLineWidth(1.5 / zoom)
+        context.setLineWidth(1.5 / onScreen)
         // A brush stroke or text has no ends worth dragging, so it gets a dashed box and no handles.
         guard annotation.kind.hasEnds else {
-            let pad = annotation.lineWidth / 2 + 4 / zoom
-            context.setLineDash(phase: 0, lengths: [4 / zoom, 3 / zoom])
+            let pad = annotation.lineWidth / 2 + 4 / onScreen
+            context.setLineDash(phase: 0, lengths: [4 / onScreen, 3 / onScreen])
             context.stroke(annotation.bounds.insetBy(dx: -pad, dy: -pad))
             context.setLineDash(phase: 0, lengths: [])
             return
@@ -199,7 +203,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         // so with the text tool it opens the next box.
         if typing != nil { window?.makeFirstResponder(self) }
         let point = imagePoint(event)
-        let tolerance = 6 / zoom
+        let tolerance = 6 / onScreen
         beforeDrag = document
         guard let shape = tool.shape else {
             // Cropping ignores the shapes under the cursor.
@@ -277,7 +281,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
         switch drag {
         case .drawing:
             // A click without a drag draws nothing and clears the selection.
-            guard let drawn = document.annotations.last, max(drawn.bounds.width, drawn.bounds.height) * zoom >= 3 else {
+            guard let drawn = document.annotations.last, max(drawn.bounds.width, drawn.bounds.height) * onScreen >= 3 else {
                 document = beforeDrag
                 return
             }
@@ -290,7 +294,7 @@ final class CanvasView: NSView, NSTextViewDelegate {
             commit(replacing: beforeDrag, "Resize")
         case .cropping:
             // A click without a drag, or a sliver, removes the crop.
-            if let crop = document.crop, crop == beforeDrag.crop || crop.width * zoom < 4 || crop.height * zoom < 4 {
+            if let crop = document.crop, crop == beforeDrag.crop || crop.width * onScreen < 4 || crop.height * onScreen < 4 {
                 document.crop = nil
             }
             commit(replacing: beforeDrag, "Crop")
@@ -403,5 +407,19 @@ final class CanvasView: NSView, NSTextViewDelegate {
 
     @objc func saveDocument(_ sender: Any?) {
         do { try Output.save(rendered()) } catch { NSApp.presentError(error) }
+    }
+
+    // MARK: Zoom
+
+    @objc func zoomIn(_ sender: Any?) { magnify(by: 1.5) }
+
+    @objc func zoomOut(_ sender: Any?) { magnify(by: 1 / 1.5) }
+
+    @objc func zoomToFit(_ sender: Any?) { enclosingScrollView?.magnification = 1 }
+
+    /// Around the middle of what is in view. The scroll view keeps it within its limits.
+    private func magnify(by factor: CGFloat) {
+        guard let scroll = enclosingScrollView else { return }
+        scroll.setMagnification(scroll.magnification * factor, centeredAt: CGPoint(x: visibleRect.midX, y: visibleRect.midY))
     }
 }
