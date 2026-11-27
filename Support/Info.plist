@@ -25,5 +25,10 @@
 	<string>cheapshot records the microphone only when you ask it to, for a recording or a narration.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
+	<!-- No encryption beyond what macOS provides, so App Store uploads skip the export compliance questions. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

@@ -9,7 +9,7 @@ VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
 # The date and time, so every build gets a new number.
 BUILD_NUMBER ?= $(shell date +%y%m%d.%H%M)
 
-.PHONY: app run test snapshots icon clean
+.PHONY: app appstore run test snapshots icon clean
 
 app:
 	swift build -c release
@@ -25,6 +25,18 @@ app:
 
 run: app
 	open $(APP)
+
+# The Mac App Store package: the same app with the store profile, signed for the store.
+# Needs the Apple Distribution and Mac Installer Distribution certificates in the keychain,
+# and the "Mac App Store Connect" profile at APPSTORE_PROFILE. Upload build/cheapshot.pkg with Transporter.
+APPSTORE_PROFILE ?= Support/cheapshot-appstore.provisionprofile
+APPSTORE_IDENTITY ?= Apple Distribution: PLAYMORE - CONSULTORIA EM TECNOLOGIA DA INFORMACAO - LTDA. (PUPM94MU32)
+INSTALLER_IDENTITY ?= 3rd Party Mac Developer Installer: PLAYMORE - CONSULTORIA EM TECNOLOGIA DA INFORMACAO - LTDA. (PUPM94MU32)
+
+appstore: app
+	cp "$(APPSTORE_PROFILE)" $(APP)/Contents/embedded.provisionprofile
+	codesign --force --options runtime --entitlements Support/cheapshot-appstore.entitlements --sign "$(APPSTORE_IDENTITY)" $(APP)
+	productbuild --component $(APP) /Applications --sign "$(INSTALLER_IDENTITY)" build/cheapshot.pkg
 
 # The Command Line Tools ship the Swift Testing macros outside the default plugin path.
 # Xcode finds them without help, and the extra path is harmless there.

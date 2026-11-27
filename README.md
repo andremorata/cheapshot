@@ -143,6 +143,8 @@ A push to `main` that changes the app starts the release workflow, which waits f
 
 For a minor or major version, run the workflow by hand from the Actions tab and type the version. The same form has a rehearsal option that builds and packages without publishing.
 
+The Mac App Store build is made by hand. `make appstore` signs the app for the store and writes `build/cheapshot.pkg`. It needs the Apple Distribution and Mac Installer Distribution certificates in the keychain, and the "Mac App Store Connect" profile at `Support/cheapshot-appstore.provisionprofile`, which git ignores. Upload the package with Transporter or `xcrun altool --upload-app`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
