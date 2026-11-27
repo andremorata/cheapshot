@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- On the first sandboxed launch, macOS moves these into the app's container, so settings and the log carry over. -->
+<dict>
+	<key>Move</key>
+	<array>
+		<string>${Library}/Preferences/com.andremorata.cheapshot.plist</string>
+		<string>${Library}/Logs/cheapshot.log</string>
+	</array>
+</dict>
+</plist>

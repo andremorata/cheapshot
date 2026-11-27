@@ -238,7 +238,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             case .ask:
                 try Output.save(shot)
             case .folder:
-                try Output.write(shot, toFolder: CaptureAction.folder())
+                // The first time there is no folder yet. Cancelling still leaves the shot on the clipboard.
+                if let folder = CaptureAction.folder() ?? Output.chooseFolder() {
+                    try Output.write(shot, toFolder: folder)
+                }
                 Thumbnail.show(shot) { Editor.open(shot) }
             }
         } catch {

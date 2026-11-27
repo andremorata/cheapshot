@@ -70,6 +70,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
         general.padding[general.rows.count] = 10
         general.row("After a screenshot", afterCapture)
         folderPath.url = CaptureAction.folder()
+        folderPath.placeholderString = "Asked on the first save"
         folderPath.pathStyle = .standard
         folderPath.isEditable = false
         folderPath.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -251,14 +252,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
     }
 
     @objc private func pickFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.directoryURL = CaptureAction.folder()
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        CaptureAction.setFolder(url)
+        guard let url = Output.chooseFolder() else { return }
         folderPath.url = url
     }
 

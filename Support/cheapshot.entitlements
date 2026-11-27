@@ -2,8 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The hardened runtime blocks the microphone without this. Screen capture needs no entitlement. -->
+	<!-- The Mac App Store requires the sandbox. Every build uses it, so all of them behave the same. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The microphone, for recordings and narration. Screen capture needs no entitlement. -->
 	<key>com.apple.security.device.audio-input</key>
+	<true/>
+	<!-- Files and folders the user picks in a save or open panel, such as the screenshots folder. -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- Keeps access to the screenshots folder across launches. -->
+	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 </dict>
 </plist>

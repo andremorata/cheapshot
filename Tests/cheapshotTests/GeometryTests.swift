@@ -227,13 +227,17 @@ private func redAfter(_ kind: Annotation.Kind, x: Int, lineWidth: CGFloat = 8) t
     let name = "cheapshot-test-\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: name))
     defer { defaults.removePersistentDomain(forName: name) }
-    // Nothing saved: a thumbnail, and the Desktop as the folder.
+    // Nothing saved: a thumbnail, and no folder until the user picks one.
     #expect(CaptureAction.current(in: defaults) == .copy)
-    #expect(CaptureAction.folder(in: defaults).lastPathComponent == "Desktop")
+    #expect(CaptureAction.folder(in: defaults) == nil)
+    // A bookmark only resolves to a folder that exists.
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent(name, isDirectory: true)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
     CaptureAction.setCurrent(.folder, in: defaults)
-    CaptureAction.setFolder(URL(fileURLWithPath: "/tmp/shots"), in: defaults)
+    try CaptureAction.setFolder(folder, in: defaults)
     #expect(CaptureAction.current(in: defaults) == .folder)
-    #expect(CaptureAction.folder(in: defaults).path == "/tmp/shots")
+    #expect(CaptureAction.folder(in: defaults)?.resolvingSymlinksInPath().path == folder.resolvingSymlinksInPath().path)
 }
 
 @Test func labelAndLoupeMoveAwayFromScreenEdges() {

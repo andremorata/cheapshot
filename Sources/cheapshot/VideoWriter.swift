@@ -284,7 +284,7 @@ private struct AudioLevels {
     }
 }
 
-/// Appends lines to ~/Library/Logs/cheapshot.log. The unified system log is not always readable,
+/// Appends lines to Library/Logs/cheapshot.log inside the app's sandbox container. The unified system log is not always readable,
 /// and a plain file is easy to send along with a bug report.
 enum RecordingLog {
     static let url = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]

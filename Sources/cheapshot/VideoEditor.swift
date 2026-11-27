@@ -960,7 +960,8 @@ final class VideoEditor: NSObject, NSWindowDelegate {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.contentType]
         panel.nameFieldStringValue = Output.fileName(format.contentType.preferredFilenameExtension ?? "mp4")
-        panel.directoryURL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+        // Inside the sandbox the Movies path points into the container, so the link is followed to the real one.
+        panel.directoryURL = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first?.resolvingSymlinksInPath()
         NSApp.activate()
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         isSaving = true
