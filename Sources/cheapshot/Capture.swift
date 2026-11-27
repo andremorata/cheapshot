@@ -53,9 +53,10 @@ enum Capture {
             guard let display = content.displays.first(where: { $0.displayID == id }) else {
                 throw CaptureError.displayNotFound
             }
-            // Leaves our own overlay, thumbnail and windows out of the picture.
+            // Leaves our own overlay, thumbnail and windows out of the picture, except a drawing on the screen.
             let ours = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
-            let filter = SCContentFilter(display: display, excludingApplications: ours, exceptingWindows: [])
+            let drawing = content.windows.filter { $0.windowID == ScreenDraw.drawingWindowID }
+            let filter = SCContentFilter(display: display, excludingApplications: ours, exceptingWindows: drawing)
             let rect = region ?? CGRect(origin: .zero, size: display.frame.size)
             return (filter, rect.size, rect)
         case .window(let id):

@@ -3,7 +3,7 @@ import Carbon.HIToolbox
 
 /// What a global hotkey can trigger.
 enum HotKeyAction: String, CaseIterable, Sendable {
-    case region, window, screen, scroll, text, annotate, record
+    case region, window, screen, scroll, text, annotate, record, draw
 
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum HotKeyAction: String, CaseIterable, Sendable {
         case .text: "Capture Text"
         case .annotate: "Annotate Last Capture"
         case .record: "Record…"
+        case .draw: "Draw on Screen"
         }
     }
 
@@ -28,6 +29,7 @@ enum HotKeyAction: String, CaseIterable, Sendable {
         case .text: return Shortcut(keyCode: kVK_ANSI_T, modifiers: modifiers, key: "T")
         case .annotate: return Shortcut(keyCode: kVK_ANSI_E, modifiers: modifiers, key: "E")
         case .record: return Shortcut(keyCode: kVK_ANSI_R, modifiers: modifiers, key: "R")
+        case .draw: return Shortcut(keyCode: kVK_ANSI_D, modifiers: modifiers, key: "D")
         }
     }
 }

@@ -72,6 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case .text: captureText()
         case .annotate: annotateLastCapture()
         case .record: recorder == nil ? showRecordPanel() : stopRecording()
+        case .draw: ScreenDraw.toggle()
         }
     }
 
@@ -105,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         menu.addItem(withTitle: "Save Last Capture…", action: #selector(saveLastCapture), keyEquivalent: "s").target = self
         menu.addItem(.separator())
         add(.record)
+        add(.draw)
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
