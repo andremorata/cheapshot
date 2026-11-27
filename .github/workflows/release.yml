@@ -77,12 +77,12 @@ jobs:
         timeout-minutes: 10
         run: script -q /dev/null make test < /dev/null
 
-      # The same self-signed identity as every earlier release. macOS ties the Screen Recording
-      # permission to it, so a different signature would make every user grant it again.
+      # The Developer ID of team PUPM94MU32. macOS ties the Screen Recording permission to it,
+      # so a different signature would make every user grant it again.
       - name: Import the signing identity
         env:
-          SIGNING_P12: ${{ secrets.SIGNING_P12 }}
-          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+          SIGNING_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
         run: |
           keychain="$RUNNER_TEMP/signing.keychain-db"
           keychain_password=$(uuidgen)
@@ -96,17 +96,36 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
 
       - name: Build
-        run: make app VERSION="${{ steps.version.outputs.version }}" CODESIGN_IDENTITY="cheapshot dev"
+        env:
+          IDENTITY: "Developer ID Application: PLAYMORE - CONSULTORIA EM TECNOLOGIA DA INFORMACAO - LTDA. (PUPM94MU32)"
+        run: make app VERSION="${{ steps.version.outputs.version }}" CODESIGN_IDENTITY="$IDENTITY"
+
+      # Stapled, so Gatekeeper opens the app on first launch without asking Apple, even offline.
+      - name: Notarize
+        timeout-minutes: 25
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          # A build signed any other way must never ship. It would break the permission for everyone.
+          codesign -dv build/cheapshot.app 2>&1 | grep -qx 'TeamIdentifier=PUPM94MU32' || { echo "::error::not signed by team PUPM94MU32"; exit 1; }
+          codesign -dv build/cheapshot.app 2>&1 | grep -q 'flags=.*runtime' || { echo "::error::signed without the hardened runtime"; exit 1; }
+          codesign --verify --deep --strict build/cheapshot.app
+          key="$RUNNER_TEMP/notary_key.p8"
+          echo "$NOTARY_KEY" > "$key"
+          ditto -c -k --keepParent build/cheapshot.app "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --key "$key" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID" --wait --timeout 20m
+          rm "$key"
+          # Fails when Apple rejected the build, because there is no ticket to staple.
+          xcrun stapler staple build/cheapshot.app
+          spctl -a -vv -t exec build/cheapshot.app 2>&1 | grep -q 'source=Notarized Developer ID' || { echo "::error::Gatekeeper does not accept the build"; exit 1; }
 
       - name: Package
         id: package
         run: |
           version="${{ steps.version.outputs.version }}"
           zip="build/cheapshot-$version.zip"
-          # A build signed any other way must never ship. It would break the permission for everyone.
-          codesign -d -r- build/cheapshot.app 2>&1 | grep -q 'certificate leaf' || { echo "::error::not signed with the release identity"; exit 1; }
-          codesign -dv build/cheapshot.app 2>&1 | grep -q 'flags=.*runtime' || { echo "::error::signed without the hardened runtime"; exit 1; }
-          codesign --verify --deep --strict build/cheapshot.app
           ditto -c -k --sequesterRsrc --keepParent build/cheapshot.app "$zip"
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
           echo "sha256=$(shasum -a 256 "$zip" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -127,7 +146,7 @@ jobs:
           {
             git log --format='- %s' ${previous:+"$previous"..}HEAD
             echo
-            echo 'Requires macOS 15 or later on Apple silicon. The app is not notarized. On first launch, open System Settings, go to Privacy & Security and click "Open Anyway".'
+            echo 'Requires macOS 15 or later on Apple silicon.'
           } > "$RUNNER_TEMP/notes.md"
           gh release create "v$version" "${{ steps.package.outputs.zip }}" \
             --target "$GITHUB_SHA" --title "cheapshot $version" --notes-file "$RUNNER_TEMP/notes.md"
